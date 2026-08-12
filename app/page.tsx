@@ -105,13 +105,17 @@ export default function Home() {
       markerLayerRef.current = leaflet.layerGroup().addTo(map);
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
-      const addBufferedTileLayer = (url: string, attribution = "") => {
+      const addBufferedTileLayer = (
+        url: string,
+        attribution = "",
+        options: { subdomains?: string; maxNativeZoom?: number } = {},
+      ) => {
         const tileLayer = leaflet.tileLayer(url, {
-          maxNativeZoom: 16,
           maxZoom: 20,
           keepBuffer: 4,
           updateWhenIdle: false,
           attribution,
+          ...options,
         });
         const bufferedLayer = tileLayer as typeof tileLayer & {
           _getTiledPixelBounds(center: LatLng): Bounds;
@@ -129,11 +133,14 @@ export default function Home() {
       };
 
       addBufferedTileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-        '&copy; Esri, HERE, Garmin, <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+        "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        { subdomains: "abcd" },
       );
       addBufferedTileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+        "",
+        { maxNativeZoom: 16 },
       );
 
       const bounds = leaflet.latLngBounds(
@@ -252,6 +259,16 @@ export default function Home() {
               <div className="filter-section">
                 <h2>Category</h2>
                 <div className="filter-options">
+                  <label className="select-all-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedCategories.length === categories.length}
+                      onChange={() => setSelectedCategories(
+                        selectedCategories.length === categories.length ? [] : categories,
+                      )}
+                    />
+                    <span>ÖSSZES</span>
+                  </label>
                   {categories.map((category) => (
                     <label key={category}>
                       <input
@@ -267,6 +284,16 @@ export default function Home() {
               <div className="filter-section countries-section">
                 <h2>Countries</h2>
                 <div className="filter-options country-options">
+                  <label className="select-all-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedCountries.length === countries.length}
+                      onChange={() => setSelectedCountries(
+                        selectedCountries.length === countries.length ? [] : countries,
+                      )}
+                    />
+                    <span>ÖSSZES</span>
+                  </label>
                   {countries.map((country) => (
                     <label key={country}>
                       <input

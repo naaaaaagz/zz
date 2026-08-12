@@ -77,6 +77,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .filter-options input { width: 14px; height: 14px; margin: 0; accent-color: var(--purple); }
 .filter-options span { white-space: nowrap; }
 .filter-options small { color: var(--muted); font-size: inherit; }
+.filter-options .select-all-option { grid-column: 1 / -1; width: 100%; margin-bottom: 2px; border-bottom: 1px solid var(--line); border-radius: 8px 8px 3px 3px; color: #eadcfa; font-weight: 750; }
 .country-options { grid-template-columns: repeat(2, max-content); }
 @keyframes filters-in { from { opacity: 0; transform: translateY(-7px); } }
 
