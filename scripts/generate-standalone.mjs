@@ -29,8 +29,10 @@ const places = payload.table.rows
   })
   .filter((place) => place.name && Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
 
-const categories = [...new Set(places.map((place) => place.category).filter(Boolean))].sort();
-const countries = [...new Set(places.map((place) => place.country).filter(Boolean))].sort();
+const categories = [...new Set(places.map((place) => place.category).filter(Boolean))]
+  .sort((a, b) => a.localeCompare(b));
+const countries = [...new Set(places.map((place) => place.country).filter(Boolean))]
+  .sort((a, b) => a.localeCompare(b));
 const countValues = (values) => values.reduce((counts, value) => {
   if (value) counts[value] = (counts[value] ?? 0) + 1;
   return counts;
@@ -46,7 +48,7 @@ const html = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>ZedTheCyclist — Zarándoklatai</title>
+  <title>ZedTheCyclist — Pilgrimage Map</title>
   <meta name="description" content="A map of ZedTheCyclist's journeys and Twitch clips.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
