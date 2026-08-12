@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { LayerGroup, Map as LeafletMap } from "leaflet";
+import type { Bounds, LatLng, LayerGroup, Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 type Place = {
@@ -90,14 +90,30 @@ export default function Home() {
       markerLayerRef.current = leaflet.layerGroup().addTo(map);
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
-      leaflet
-        .tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      const tileLayer = leaflet.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        {
           subdomains: "abcd",
           maxZoom: 20,
+          keepBuffer: 4,
+          updateWhenIdle: false,
           attribution:
             '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        })
-        .addTo(map);
+        },
+      );
+      const bufferedLayer = tileLayer as typeof tileLayer & {
+        _getTiledPixelBounds(center: LatLng): Bounds;
+      };
+      const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
+      bufferedLayer._getTiledPixelBounds = (center) => {
+        const visibleBounds = getVisiblePixelBounds(center);
+        const edgeBuffer = bufferedLayer.getTileSize();
+        return leaflet.bounds(
+          visibleBounds.min.subtract(edgeBuffer),
+          visibleBounds.max.add(edgeBuffer),
+        );
+      };
+      tileLayer.addTo(map);
 
       const bounds = leaflet.latLngBounds(
         places.map((place) => [place.latitude, place.longitude] as [number, number]),

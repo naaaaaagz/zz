@@ -80,7 +80,8 @@ const html = `<!doctype html>
     const selectedCategories=new Set(categories),selectedCountries=new Set(countries);
     const map=L.map("map",{center:[47.8,13.9],zoom:4,minZoom:2,maxZoom:18,zoomControl:false,attributionControl:false,preferCanvas:true});
     L.control.zoom({position:"bottomright"}).addTo(map);L.control.attribution({position:"bottomleft",prefix:false}).addTo(map);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:20,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+    const tileLayer=L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:20,keepBuffer:4,updateWhenIdle:false,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'});
+    const getVisiblePixelBounds=tileLayer._getTiledPixelBounds.bind(tileLayer);tileLayer._getTiledPixelBounds=center=>{const visibleBounds=getVisiblePixelBounds(center),edgeBuffer=tileLayer.getTileSize();return L.bounds(visibleBounds.min.subtract(edgeBuffer),visibleBounds.max.add(edgeBuffer))};tileLayer.addTo(map);
     const renderer=L.canvas({padding:.5}),bounds=L.latLngBounds([]),markers=L.layerGroup().addTo(map),escapeHtml=text=>String(text).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[char]));
     const backdrop=document.getElementById("backdrop"),player=document.getElementById("player"),clipName=document.getElementById("clip-name"),clipTitle=document.getElementById("clip-title");
     function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren()}
