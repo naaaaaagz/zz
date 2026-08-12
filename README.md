@@ -4,7 +4,9 @@ An interactive map of memorable clips from ZedTheCyclist's journeys. Places are 
 
 ## Open the standalone map
 
-Open `index.html` in a browser. It contains a snapshot of all 410 locations and only needs an internet connection for the map tiles. Use the hosted version for reliable Twitch playback, because Twitch requires embeds to come from a web domain.
+Double-click `open-map.cmd`. It opens the standalone map through a small local web address, which Twitch requires for embedded clip playback. Keep the command window open while using it.
+
+Opening `index.html` directly still displays the map and pins, but Twitch rejects clip embeds on `file://` pages.
 
 ## Local development
 

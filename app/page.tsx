@@ -24,7 +24,6 @@ export default function Home() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [selected, setSelected] = useState<Place | null>(null);
   const [playerReady, setPlayerReady] = useState(false);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     let active = true;
@@ -37,9 +36,8 @@ export default function Home() {
       .then((data: Place[]) => {
         if (!active) return;
         setPlaces(data);
-        setStatus("ready");
       })
-      .catch(() => active && setStatus("error"));
+      .catch(() => {});
 
     return () => {
       active = false;
@@ -144,18 +142,8 @@ export default function Home() {
     <main className="site-shell">
       <header className="site-header">
         <a className="brand" href="https://www.twitch.tv/zedthecyclist" target="_blank" rel="noreferrer">
-          <span className="brand-mark" aria-hidden="true"><span>Z</span></span>
-          <span className="brand-copy">
-            <strong>ZedTheCyclist</strong>
-            <small>pilgrimage archive</small>
-          </span>
+          ZedTheCyclist
         </a>
-        <div className="place-count" aria-live="polite">
-          <span className={`status-dot ${status}`} />
-          {status === "loading" && "Loading the journey…"}
-          {status === "ready" && `${places.length} moments mapped`}
-          {status === "error" && "The map data could not be loaded"}
-        </div>
       </header>
 
       <div ref={mapContainer} className="map" aria-label="Interactive map of ZedTheCyclist clips" />
