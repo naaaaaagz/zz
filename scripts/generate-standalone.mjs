@@ -6,16 +6,18 @@ const value = (row, index) => row.c?.[index]?.v ?? "";
 
 const places = payload.table.rows
   .map((row, index) => {
-    const [latitude, longitude] = String(value(row, 3)).split(",").map((part) => Number(part.trim()));
+    const [latitude, longitude] = String(value(row, 4)).split(",").map((part) => Number(part.trim()));
     return {
       id: index + 1,
       name: String(value(row, 0)),
       clipUrl: String(value(row, 1)),
       category: String(value(row, 2)),
+      keywords: String(value(row, 3)),
       latitude,
       longitude,
-      twitchTitle: String(value(row, 4)),
-      country: String(value(row, 5)),
+      twitchTitle: String(value(row, 5)),
+      country: String(value(row, 6)),
+      clipDate: String(value(row, 7)),
     };
   })
   .filter((place) => place.name && Number.isFinite(place.latitude) && Number.isFinite(place.longitude));

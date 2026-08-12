@@ -34,7 +34,7 @@ export async function GET() {
 
     const places = (payload.table.rows as { c?: Cell[] }[])
       .map((row, index) => {
-        const coordinates = String(cell(row, 3))
+        const coordinates = String(cell(row, 4))
           .split(",")
           .map((value) => Number(value.trim()));
 
@@ -43,10 +43,12 @@ export async function GET() {
           name: String(cell(row, 0)),
           clipUrl: String(cell(row, 1)),
           category: String(cell(row, 2)),
+          keywords: String(cell(row, 3)),
           latitude: coordinates[0],
           longitude: coordinates[1],
-          twitchTitle: String(cell(row, 4)),
-          country: String(cell(row, 5)),
+          twitchTitle: String(cell(row, 5)),
+          country: String(cell(row, 6)),
+          clipDate: String(cell(row, 7)),
         };
       })
       .filter(

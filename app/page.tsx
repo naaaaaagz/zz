@@ -9,10 +9,12 @@ type Place = {
   name: string;
   clipUrl: string;
   category: string;
+  keywords: string;
   latitude: number;
   longitude: number;
   twitchTitle: string;
   country: string;
+  clipDate: string;
 };
 
 function getClipId(url: string) {
