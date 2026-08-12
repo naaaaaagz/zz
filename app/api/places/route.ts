@@ -46,6 +46,7 @@ export async function GET() {
           latitude: coordinates[0],
           longitude: coordinates[1],
           twitchTitle: String(cell(row, 4)),
+          country: String(cell(row, 5)),
         };
       })
       .filter(
