@@ -273,7 +273,7 @@ export default function Home() {
             <div className="player-frame">
               {playerReady && (
                 <iframe
-                  src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=true`}
+                  src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=false`}
                   title={selected.twitchTitle || selected.name}
                   allow="autoplay; fullscreen"
                   allowFullScreen

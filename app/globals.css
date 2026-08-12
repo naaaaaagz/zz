@@ -51,9 +51,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .identity { display: grid; gap: 1px; filter: drop-shadow(0 5px 18px rgba(0,0,0,.66)); }
-.wordmark { font-family: "Arial Black", Arial, Helvetica, sans-serif; font-size: 23px; font-weight: 900; font-style: italic; letter-spacing: -.075em; line-height: .95; transform: skewX(-4deg); }
-.wordmark span { color: var(--purple); background: linear-gradient(115deg, #ee8cff 5%, var(--purple) 48%, var(--purple-hot)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 20px rgba(181,76,255,.22); }
-.wordmark em { color: #d9e1e8; font-size: .72em; font-style: inherit; margin: 0 .08em; letter-spacing: -.04em; }
+.wordmark { font-family: "Arial Black", Arial, Helvetica, sans-serif; font-size: 23px; font-weight: 900; font-style: italic; letter-spacing: -.045em; line-height: 1; transform: skewX(-2deg); padding: 2px 5px 2px 1px; }
+.wordmark span { display: inline-block; padding: 0 .16em 0 .02em; margin: 0 -.05em 0 -.02em; color: var(--purple); background: linear-gradient(115deg, #ee8cff 5%, var(--purple) 48%, var(--purple-hot)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 20px rgba(181,76,255,.22); }
+.wordmark em { color: #d9e1e8; font-size: .72em; font-style: inherit; margin: 0 .11em; letter-spacing: -.025em; }
 .identity small { color: #aeb8c5; font-size: 10px; font-weight: 650; letter-spacing: .19em; text-transform: uppercase; padding-left: 2px; }
 .twitch-button { pointer-events: auto; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border: 1px solid rgba(199,107,255,.32); border-radius: 10px; background: rgba(32,17,49,.82); color: #eadcfa; text-decoration: none; font-size: 12px; font-weight: 700; box-shadow: 0 12px 34px rgba(0,0,0,.28), inset 0 0 20px rgba(174,70,255,.05); backdrop-filter: blur(14px); transition: border-color .2s ease, background .2s ease, transform .2s ease; }
 .twitch-button:hover { transform: translateY(-1px); border-color: rgba(213,130,255,.64); background: rgba(58,25,84,.9); }
