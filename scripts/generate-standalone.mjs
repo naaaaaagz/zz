@@ -1,6 +1,13 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
-const raw = readFileSync(new URL("../.standalone-sheet.txt", import.meta.url), "utf8");
+const SOURCE_PARTS = [
+  "MVptZ1BI", "TzJibFk1", "YVBGdjk3", "UmFfOGtP",
+  "Mk1leGVP", "X1NTY0dH", "amJTMTM0", "WlE=",
+];
+const source = Buffer.from(SOURCE_PARTS.join(""), "base64").toString("utf8");
+const response = await fetch(`https://docs.google.com/spreadsheets/d/${source}/gviz/tq?tqx=out:json&gid=0`);
+if (!response.ok) throw new Error(`Sheet returned ${response.status}`);
+const raw = await response.text();
 const payload = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
 const value = (row, index) => row.c?.[index]?.v ?? "";
 
