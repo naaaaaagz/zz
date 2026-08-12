@@ -23,6 +23,7 @@ export default function Home() {
   const mapRef = useRef<LeafletMap | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selected, setSelected] = useState<Place | null>(null);
+  const [playerReady, setPlayerReady] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
@@ -121,6 +122,21 @@ export default function Home() {
     };
   }, [selected]);
 
+  useEffect(() => {
+    setPlayerReady(false);
+    if (!selected) return;
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => setPlayerReady(true));
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [selected]);
+
   const parent = typeof window === "undefined" ? "localhost" : window.location.hostname;
   const clipId = selected ? getClipId(selected.clipUrl) : "";
 
@@ -173,12 +189,14 @@ export default function Home() {
               </button>
             </div>
             <div className="player-frame">
-              <iframe
-                src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=true`}
-                title={selected.twitchTitle || selected.name}
-                allow="autoplay; fullscreen"
-                allowFullScreen
-              />
+              {playerReady && (
+                <iframe
+                  src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=true`}
+                  title={selected.twitchTitle || selected.name}
+                  allow="autoplay; fullscreen"
+                  allowFullScreen
+                />
+              )}
             </div>
             {selected.twitchTitle && selected.twitchTitle !== selected.name && (
               <p className="twitch-title">{selected.twitchTitle}</p>
