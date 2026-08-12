@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import type { Map as LeafletMap } from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 type Place = {
   id: number;
@@ -14,32 +14,13 @@ type Place = {
   twitchTitle: string;
 };
 
-const MAP_STYLE = {
-  version: 8 as const,
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: {
-    carto: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    },
-  },
-  layers: [{ id: "carto", type: "raster" as const, source: "carto" }],
-};
-
 function getClipId(url: string) {
   return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? "";
 }
 
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selected, setSelected] = useState<Place | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -69,157 +50,57 @@ export default function Home() {
 
     let cancelled = false;
 
-    import("maplibre-gl").then((maplibregl) => {
+    import("leaflet").then((leaflet) => {
       if (cancelled || !mapContainer.current) return;
 
-      const map = new maplibregl.Map({
-        container: mapContainer.current,
-        style: MAP_STYLE,
-        center: [13.9, 47.8],
-        zoom: 4.35,
+      const map = leaflet.map(mapContainer.current, {
+        center: [47.8, 13.9],
+        zoom: 4,
         minZoom: 2,
         maxZoom: 18,
+        zoomControl: false,
         attributionControl: false,
       });
 
       mapRef.current = map;
-      map.addControl(
-        new maplibregl.NavigationControl({ showCompass: false }),
-        "bottom-right",
-      );
-      map.addControl(
-        new maplibregl.AttributionControl({ compact: true }),
-        "bottom-left",
-      );
+      leaflet.control.zoom({ position: "bottomright" }).addTo(map);
+      leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
+      leaflet
+        .tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+          subdomains: "abcd",
+          maxZoom: 20,
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        })
+        .addTo(map);
 
-      map.on("load", () => {
-        map.addSource("places", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: places.map((place) => ({
-              type: "Feature",
-              geometry: {
-                type: "Point",
-                coordinates: [place.longitude, place.latitude],
-              },
-              properties: place,
-            })),
-          },
-          cluster: true,
-          clusterMaxZoom: 11,
-          clusterRadius: 42,
+      const bounds = leaflet.latLngBounds([]);
+
+      places.forEach((place) => {
+        const point: [number, number] = [place.latitude, place.longitude];
+        bounds.extend(point);
+
+        const marker = leaflet.circleMarker(point, {
+          radius: place.clipUrl ? 5.5 : 4.5,
+          color: "#07141c",
+          weight: 2,
+          fillColor: place.clipUrl ? "#51e3d8" : "#7c9299",
+          fillOpacity: 1,
+          bubblingMouseEvents: false,
         });
 
-        map.addLayer({
-          id: "clusters-glow",
-          type: "circle",
-          source: "places",
-          filter: ["has", "point_count"],
-          paint: {
-            "circle-color": "rgba(57, 211, 210, 0.14)",
-            "circle-radius": ["step", ["get", "point_count"], 27, 20, 34, 80, 43],
-            "circle-blur": 0.35,
-          },
+        marker.bindTooltip(place.name || "Untitled clip", {
+          direction: "top",
+          offset: [0, -8],
+          opacity: 1,
         });
 
-        map.addLayer({
-          id: "clusters",
-          type: "circle",
-          source: "places",
-          filter: ["has", "point_count"],
-          paint: {
-            "circle-color": "#142e3a",
-            "circle-radius": ["step", ["get", "point_count"], 18, 20, 23, 80, 29],
-            "circle-stroke-width": 1.5,
-            "circle-stroke-color": "#46dfd6",
-          },
-        });
-
-        map.addLayer({
-          id: "cluster-count",
-          type: "symbol",
-          source: "places",
-          filter: ["has", "point_count"],
-          layout: {
-            "text-field": ["get", "point_count_abbreviated"],
-            "text-size": 12,
-            "text-font": ["Open Sans Bold"],
-          },
-          paint: { "text-color": "#dffffd" },
-        });
-
-        map.addLayer({
-          id: "unclustered-point-glow",
-          type: "circle",
-          source: "places",
-          filter: ["!", ["has", "point_count"]],
-          paint: {
-            "circle-color": "rgba(74, 226, 213, 0.22)",
-            "circle-radius": 13,
-            "circle-blur": 0.45,
-          },
-        });
-
-        map.addLayer({
-          id: "unclustered-point",
-          type: "circle",
-          source: "places",
-          filter: ["!", ["has", "point_count"]],
-          paint: {
-            "circle-color": "#51e3d8",
-            "circle-radius": 5.5,
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#07141c",
-          },
-        });
-
-        const popup = new maplibregl.Popup({
-          closeButton: false,
-          closeOnClick: false,
-          offset: 12,
-          className: "clip-hover-popup",
-        });
-
-        map.on("mouseenter", "unclustered-point", (event) => {
-          map.getCanvas().style.cursor = "pointer";
-          const feature = event.features?.[0];
-          if (!feature || feature.geometry.type !== "Point") return;
-          const coordinates = [...feature.geometry.coordinates] as [number, number];
-          const name = String(feature.properties?.name ?? "Untitled clip");
-          popup.setLngLat(coordinates).setText(name).addTo(map);
-        });
-
-        map.on("mouseleave", "unclustered-point", () => {
-          map.getCanvas().style.cursor = "";
-          popup.remove();
-        });
-
-        map.on("mouseenter", "clusters", () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-
-        map.on("mouseleave", "clusters", () => {
-          map.getCanvas().style.cursor = "";
-        });
-
-        map.on("click", "clusters", async (event: MapMouseEvent) => {
-          const feature = map.queryRenderedFeatures(event.point, { layers: ["clusters"] })[0];
-          if (!feature || feature.geometry.type !== "Point") return;
-          const clusterId = Number(feature.properties?.cluster_id);
-          const source = map.getSource("places") as maplibregl.GeoJSONSource;
-          const zoom = await source.getClusterExpansionZoom(clusterId);
-          map.easeTo({
-            center: feature.geometry.coordinates as [number, number],
-            zoom,
-          });
-        });
-
-        map.on("click", "unclustered-point", (event) => {
-          const properties = event.features?.[0]?.properties as Place | undefined;
-          if (properties?.clipUrl) setSelected(properties);
-        });
+        if (place.clipUrl) marker.on("click", () => setSelected(place));
+        marker.addTo(map);
       });
+
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.06), { maxZoom: 7 });
+      requestAnimationFrame(() => map.invalidateSize());
     });
 
     return () => {
