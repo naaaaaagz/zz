@@ -25,6 +25,13 @@ function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
+function countValues(values: string[]) {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    if (value) counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -39,6 +46,14 @@ export default function Home() {
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
   const countries = useMemo(() => unique(places.map((place) => place.country)), [places]);
+  const categoryCounts = useMemo(
+    () => countValues(places.map((place) => place.category)),
+    [places],
+  );
+  const countryCounts = useMemo(
+    () => countValues(places.map((place) => place.country)),
+    [places],
+  );
   const visiblePlaces = useMemo(
     () =>
       places.filter(
@@ -90,30 +105,36 @@ export default function Home() {
       markerLayerRef.current = leaflet.layerGroup().addTo(map);
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
-      const tileLayer = leaflet.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        {
-          subdomains: "abcd",
+      const addBufferedTileLayer = (url: string, attribution = "") => {
+        const tileLayer = leaflet.tileLayer(url, {
+          maxNativeZoom: 16,
           maxZoom: 20,
           keepBuffer: 4,
           updateWhenIdle: false,
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        },
+          attribution,
+        });
+        const bufferedLayer = tileLayer as typeof tileLayer & {
+          _getTiledPixelBounds(center: LatLng): Bounds;
+        };
+        const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
+        bufferedLayer._getTiledPixelBounds = (center) => {
+          const visibleBounds = getVisiblePixelBounds(center);
+          const edgeBuffer = bufferedLayer.getTileSize();
+          return leaflet.bounds(
+            visibleBounds.min.subtract(edgeBuffer),
+            visibleBounds.max.add(edgeBuffer),
+          );
+        };
+        tileLayer.addTo(map);
+      };
+
+      addBufferedTileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        '&copy; Esri, HERE, Garmin, <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
       );
-      const bufferedLayer = tileLayer as typeof tileLayer & {
-        _getTiledPixelBounds(center: LatLng): Bounds;
-      };
-      const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
-      bufferedLayer._getTiledPixelBounds = (center) => {
-        const visibleBounds = getVisiblePixelBounds(center);
-        const edgeBuffer = bufferedLayer.getTileSize();
-        return leaflet.bounds(
-          visibleBounds.min.subtract(edgeBuffer),
-          visibleBounds.max.add(edgeBuffer),
-        );
-      };
-      tileLayer.addTo(map);
+      addBufferedTileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+      );
 
       const bounds = leaflet.latLngBounds(
         places.map((place) => [place.latitude, place.longitude] as [number, number]),
@@ -238,7 +259,7 @@ export default function Home() {
                         checked={selectedCategories.includes(category)}
                         onChange={() => toggleFilter(category, selectedCategories, setSelectedCategories)}
                       />
-                      <span>{category}</span>
+                      <span>{category} <small>({categoryCounts[category]})</small></span>
                     </label>
                   ))}
                 </div>
@@ -253,7 +274,7 @@ export default function Home() {
                         checked={selectedCountries.includes(country)}
                         onChange={() => toggleFilter(country, selectedCountries, setSelectedCountries)}
                       />
-                      <span>{country}</span>
+                      <span>{country} <small>({countryCounts[country]})</small></span>
                     </label>
                   ))}
                 </div>
