@@ -5,22 +5,19 @@ import type { GeoJSONSource, Map as MapLibreMap, StyleSpecification } from "mapl
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
+const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png";
+const LABEL_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
 const MAP_STYLE: StyleSpecification = {
   version: 8,
   sources: {
     "dark-base": {
       type: "raster", tileSize: 256, maxzoom: 20,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
-        "https://d.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
-      ],
+      tiles: [BASE_TILE_URL],
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     },
     "english-labels": {
       type: "raster", tileSize: 256, maxzoom: 16,
-      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"],
+      tiles: [LABEL_TILE_URL],
       attribution: "&copy; Esri",
     },
   },
@@ -31,6 +28,62 @@ const MAP_STYLE: StyleSpecification = {
   ],
 };
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
+const prefetchedTileUrls = new Set<string>();
+const tilePrefetchQueue: string[] = [];
+let activeTilePrefetches = 0;
+
+function drainTilePrefetchQueue() {
+  while (activeTilePrefetches < 4 && tilePrefetchQueue.length) {
+    const url = tilePrefetchQueue.shift();
+    if (!url) return;
+    activeTilePrefetches += 1;
+    fetch(url, { cache: "force-cache", mode: "cors" }).catch(() => {
+      prefetchedTileUrls.delete(url);
+    }).finally(() => {
+      activeTilePrefetches -= 1;
+      drainTilePrefetchQueue();
+    });
+  }
+}
+
+function queueTilePrefetch(url: string) {
+  if (prefetchedTileUrls.has(url)) return;
+  if (prefetchedTileUrls.size > 1600) prefetchedTileUrls.clear();
+  prefetchedTileUrls.add(url);
+  tilePrefetchQueue.push(url);
+  drainTilePrefetchQueue();
+}
+
+function prefetchTileRing(map: MapLibreMap) {
+  const bounds = map.getBounds();
+  const addRing = (zoom: number, template: string) => {
+    const tileCount = 2 ** zoom;
+    const longitudeToX = (longitude: number) => Math.floor(((longitude + 180) / 360) * tileCount);
+    const latitudeToY = (latitude: number) => {
+      const clamped = Math.max(-85.05112878, Math.min(85.05112878, latitude));
+      const radians = clamped * Math.PI / 180;
+      return Math.floor((1 - Math.asinh(Math.tan(radians)) / Math.PI) / 2 * tileCount);
+    };
+    let west = bounds.getWest();
+    let east = bounds.getEast();
+    while (east < west) east += 360;
+    const minX = longitudeToX(west);
+    const maxX = longitudeToX(east);
+    const minY = latitudeToY(bounds.getNorth());
+    const maxY = latitudeToY(bounds.getSouth());
+    for (let y = minY - 1; y <= maxY + 1; y += 1) {
+      if (y < 0 || y >= tileCount) continue;
+      for (let x = minX - 1; x <= maxX + 1; x += 1) {
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) continue;
+        const wrappedX = ((x % tileCount) + tileCount) % tileCount;
+        queueTilePrefetch(template.replace("{z}", String(zoom)).replace("{x}", String(wrappedX)).replace("{y}", String(y)));
+      }
+    }
+  };
+  const zoom = Math.max(2, Math.min(20, Math.floor(map.getZoom())));
+  addRing(zoom, BASE_TILE_URL);
+  addRing(Math.min(16, zoom), LABEL_TILE_URL);
+}
 
 type Place = {
   id: number; name: string; clipUrl: string; category: string;
@@ -185,6 +238,7 @@ export default function Home() {
   useEffect(() => {
     if (!mapContainer.current || mapRef.current || !places.length) return;
     let cancelled = false;
+    let detachMapWakeups = () => {};
     import("maplibre-gl").then(({ default: maplibregl }) => {
       if (cancelled || !mapContainer.current) return;
       const map = new maplibregl.Map({
@@ -192,10 +246,41 @@ export default function Home() {
         style: MAP_STYLE,
         center: [13.9, 47.8], zoom: 4, minZoom: 2, maxZoom: 17,
         attributionControl: false, fadeDuration: 0,
+        maxTileCacheZoomLevels: 8,
+        cancelPendingTileRequestsWhileZooming: false,
       });
       mapRef.current = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+
+      let prefetchTimer = 0;
+      const scheduleTilePrefetch = () => {
+        window.clearTimeout(prefetchTimer);
+        prefetchTimer = window.setTimeout(() => prefetchTileRing(map), 140);
+      };
+      const wakeMap = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (cancelled) return;
+        map.resize();
+        map.triggerRepaint();
+        scheduleTilePrefetch();
+      }));
+      const handleVisibility = () => { if (document.visibilityState === "visible") wakeMap(); };
+      const resizeObserver = new ResizeObserver(wakeMap);
+      resizeObserver.observe(mapContainer.current);
+      window.addEventListener("load", wakeMap);
+      window.addEventListener("pageshow", wakeMap);
+      document.addEventListener("visibilitychange", handleVisibility);
+      map.on("moveend", scheduleTilePrefetch);
+      map.on("idle", scheduleTilePrefetch);
+      detachMapWakeups = () => {
+        window.clearTimeout(prefetchTimer);
+        resizeObserver.disconnect();
+        window.removeEventListener("load", wakeMap);
+        window.removeEventListener("pageshow", wakeMap);
+        document.removeEventListener("visibilitychange", handleVisibility);
+        map.off("moveend", scheduleTilePrefetch);
+        map.off("idle", scheduleTilePrefetch);
+      };
 
       map.on("load", () => {
         if (cancelled) return;
@@ -267,10 +352,12 @@ export default function Home() {
         }).catch(() => {});
 
         setMapReady(true);
+        wakeMap();
       });
     });
     return () => {
       cancelled = true;
+      detachMapWakeups();
       mapRef.current?.remove(); mapRef.current = null;
     };
   }, [places]);

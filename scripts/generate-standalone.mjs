@@ -3,17 +3,19 @@ import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 const SOURCE = "1ZmgPHO2blY5aPFv97Ra_8kO2MexeO_SScGGjbS134ZQ";
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
 const LIVE_URL = "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live";
+const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png";
+const LABEL_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
 const MAP_STYLE = {
   version: 8,
   sources: {
     "dark-base": {
       type: "raster", tileSize: 256, maxzoom: 20,
-      tiles: ["a", "b", "c", "d"].map((subdomain) => `https://${subdomain}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png`),
+      tiles: [BASE_TILE_URL],
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     },
     "english-labels": {
       type: "raster", tileSize: 256, maxzoom: 16,
-      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"],
+      tiles: [LABEL_TILE_URL],
       attribution: "&copy; Esri",
     },
   },
@@ -79,7 +81,8 @@ const html = `<!doctype html>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071118">
   <title>ZedTheCyclist — Zarándoklatai</title>
-  <link rel="preconnect" href="https://tiles.basemaps.cartocdn.com">
+  <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
+  <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="stylesheet" href="./maplibre-gl.css">
   <style>${appCss}</style>
   <style>
@@ -150,9 +153,17 @@ const html = `<!doctype html>
 
     fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
 
-    const map=new maplibregl.Map({container:"map",style:${JSON.stringify(MAP_STYLE)},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0});
+    const map=new maplibregl.Map({container:"map",style:${JSON.stringify(MAP_STYLE)},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0,maxTileCacheZoomLevels:8,cancelPendingTileRequestsWhileZooming:false});
     map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
     map.addControl(new maplibregl.AttributionControl({compact:true}),"bottom-left");
+
+    const prefetchedTileUrls=new Set(),tilePrefetchQueue=[];let activeTilePrefetches=0,prefetchTimer=0;
+    function drainTilePrefetchQueue(){while(activeTilePrefetches<4&&tilePrefetchQueue.length){const url=tilePrefetchQueue.shift();activeTilePrefetches+=1;fetch(url,{cache:"force-cache",mode:"cors"}).catch(()=>prefetchedTileUrls.delete(url)).finally(()=>{activeTilePrefetches-=1;drainTilePrefetchQueue()})}}
+    function queueTilePrefetch(url){if(prefetchedTileUrls.has(url))return;if(prefetchedTileUrls.size>1600)prefetchedTileUrls.clear();prefetchedTileUrls.add(url);tilePrefetchQueue.push(url);drainTilePrefetchQueue()}
+    function prefetchTileRing(){const bounds=map.getBounds();function addRing(zoom,template){const tileCount=2**zoom,longitudeToX=longitude=>Math.floor((longitude+180)/360*tileCount),latitudeToY=latitude=>{const clamped=Math.max(-85.05112878,Math.min(85.05112878,latitude)),radians=clamped*Math.PI/180;return Math.floor((1-Math.asinh(Math.tan(radians))/Math.PI)/2*tileCount)};let west=bounds.getWest(),east=bounds.getEast();while(east<west)east+=360;const minX=longitudeToX(west),maxX=longitudeToX(east),minY=latitudeToY(bounds.getNorth()),maxY=latitudeToY(bounds.getSouth());for(let y=minY-1;y<=maxY+1;y+=1){if(y<0||y>=tileCount)continue;for(let x=minX-1;x<=maxX+1;x+=1){if(x>=minX&&x<=maxX&&y>=minY&&y<=maxY)continue;const wrappedX=((x%tileCount)+tileCount)%tileCount;queueTilePrefetch(template.replace("{z}",String(zoom)).replace("{x}",String(wrappedX)).replace("{y}",String(y)))}}}const zoom=Math.max(2,Math.min(20,Math.floor(map.getZoom())));addRing(zoom,${JSON.stringify(BASE_TILE_URL)});addRing(Math.min(16,zoom),${JSON.stringify(LABEL_TILE_URL)})}
+    function scheduleTilePrefetch(){clearTimeout(prefetchTimer);prefetchTimer=setTimeout(prefetchTileRing,140)}
+    function wakeMap(){requestAnimationFrame(()=>requestAnimationFrame(()=>{map.resize();map.triggerRepaint();scheduleTilePrefetch()}))}
+    new ResizeObserver(wakeMap).observe(document.getElementById("map"));window.addEventListener("load",wakeMap);window.addEventListener("pageshow",wakeMap);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")wakeMap()});map.on("moveend",scheduleTilePrefetch);map.on("idle",scheduleTilePrefetch);
 
     function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Untitled clip",linked:Boolean(place.clipUrl),top:place.top}}))}}
     function addTopStar(){const size=40,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return;const outer=17,inner=7.4,center=size/2;context.beginPath();for(let index=0;index<10;index+=1){const radius=index%2===0?outer:inner,angle=-Math.PI/2+index*Math.PI/5,x=center+Math.cos(angle)*radius,y=center+Math.sin(angle)*radius;index===0?context.moveTo(x,y):context.lineTo(x,y)}context.closePath();const gradient=context.createLinearGradient(8,6,31,34);gradient.addColorStop(0,"#f1a4ff");gradient.addColorStop(.58,"#a64cff");gradient.addColorStop(1,"#7047e8");context.fillStyle=gradient;context.fill();context.lineWidth=2.5;context.strokeStyle="#07141c";context.stroke();map.addImage("top-star",context.getImageData(0,0,size,size),{pixelRatio:2})}
@@ -171,7 +182,7 @@ const html = `<!doctype html>
       map.on("mouseenter","clip-clusters",()=>{map.getCanvas().style.cursor="pointer"});map.on("mouseleave","clip-clusters",()=>{map.getCanvas().style.cursor=""});
       map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;map.getSource("clips").getClusterExpansionZoom(Number(feature.properties.cluster_id)).then(zoom=>map.easeTo({center:feature.geometry.coordinates,zoom,duration:520})).catch(()=>{})});
       fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(!geoJson||map.getSource("country-borders"))return;map.addSource("country-borders",{type:"geojson",data:geoJson});map.addLayer({id:"country-borders",type:"line",source:"country-borders",paint:{"line-color":"#86a8b3","line-width":["interpolate",["linear"],["zoom"],2,1.1,8,1.6,14,2],"line-opacity":.68}},"clip-clusters")}).catch(()=>{});
-      mapReady=true;renderMarkers(true);
+      mapReady=true;renderMarkers(true);wakeMap();
     });
 
     const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge");

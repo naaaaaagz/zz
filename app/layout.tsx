@@ -14,6 +14,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://server.arcgisonline.com" crossOrigin="anonymous" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body>
     </html>
   );
