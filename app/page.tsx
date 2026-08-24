@@ -109,6 +109,7 @@ type SearchSuggestion = {
 };
 
 type ConnectorLine = { left: number; top: number; width: number; angle: number; preview: boolean };
+type ViewportBounds = { west: number; east: number; south: number; north: number };
 
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
@@ -174,6 +175,14 @@ function rankSearchSuggestions(suggestions: SearchSuggestion[], query: string) {
     })
     .sort((a, b) => b.score - a.score || a.suggestion.label.localeCompare(b.suggestion.label, "hu"))
     .slice(0, 8).map(({ suggestion }) => suggestion);
+}
+
+function placeIsInViewport(place: Place, bounds: ViewportBounds | null) {
+  if (!bounds) return true;
+  const longitudeVisible = bounds.west <= bounds.east
+    ? place.longitude >= bounds.west && place.longitude <= bounds.east
+    : place.longitude >= bounds.west || place.longitude <= bounds.east;
+  return longitudeVisible && place.latitude >= bounds.south && place.latitude <= bounds.north;
 }
 
 function placesToGeoJson(places: Place[]) {
@@ -255,8 +264,10 @@ export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapLoadingRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const mapWasDraggedRef = useRef(false);
   const searchOriginRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const listPanelRef = useRef<HTMLElement>(null);
+  const listToggleRef = useRef<HTMLButtonElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const listRowRefs = useRef(new Map<number, HTMLButtonElement>());
   const [places, setPlaces] = useState<Place[]>([]);
@@ -275,6 +286,8 @@ export default function Home() {
   const [listSortDirection, setListSortDirection] = useState<"asc" | "desc">("desc");
   const [activeListPlace, setActiveListPlace] = useState<Place | null>(null);
   const [hoveredListPlace, setHoveredListPlace] = useState<Place | null>(null);
+  const [mapHoveredPlace, setMapHoveredPlace] = useState<Place | null>(null);
+  const [viewportBounds, setViewportBounds] = useState<ViewportBounds | null>(null);
   const [connectorLine, setConnectorLine] = useState<ConnectorLine | null>(null);
   const [online, setOnline] = useState(false);
 
@@ -298,7 +311,7 @@ export default function Home() {
     return searchTokens.every((token) => haystack.includes(token));
   }), [places, searchTokens, selectedCategories, selectedCountries, topOnly]);
   const listPlaces = useMemo(() => {
-    const items = visiblePlaces.filter((place) => !listTopOnly || place.top);
+    const items = visiblePlaces.filter((place) => placeIsInViewport(place, viewportBounds) && (!listTopOnly || place.top));
     return items.sort((a, b) => {
       if (listSort === "name") {
         const comparison = (a.name || "Névtelen klip").localeCompare(b.name || "Névtelen klip", "hu", { sensitivity: "base" });
@@ -308,8 +321,11 @@ export default function Home() {
       const comparison = (a.clipDate || "").localeCompare(b.clipDate || "");
       return (listSortDirection === "asc" ? comparison : -comparison) || b.id - a.id;
     });
-  }, [listSort, listSortDirection, listTopOnly, visiblePlaces]);
+  }, [listSort, listSortDirection, listTopOnly, viewportBounds, visiblePlaces]);
   const connectorPlace = hoveredListPlace ?? activeListPlace;
+  const highlightedPlace = hoveredListPlace ?? mapHoveredPlace;
+  const hasActiveFilters = topOnly || listTopOnly || Boolean(searchTokens.length)
+    || selectedCategories.length !== categories.length || selectedCountries.length !== countries.length;
 
   useEffect(() => {
     let active = true;
@@ -354,9 +370,22 @@ export default function Home() {
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
       let prefetchTimer = 0;
+      let clearDraggedTimer = 0;
       const scheduleTilePrefetch = () => {
         window.clearTimeout(prefetchTimer);
         prefetchTimer = window.setTimeout(() => prefetchTileRing(map), 140);
+      };
+      const syncViewportBounds = () => {
+        const bounds = map.getBounds();
+        setViewportBounds({ west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth() });
+      };
+      const handleDragStart = () => {
+        window.clearTimeout(clearDraggedTimer);
+        mapWasDraggedRef.current = true;
+      };
+      const handleDragEnd = () => {
+        window.clearTimeout(clearDraggedTimer);
+        clearDraggedTimer = window.setTimeout(() => { mapWasDraggedRef.current = false; }, 0);
       };
       const wakeMap = () => requestAnimationFrame(() => requestAnimationFrame(() => {
         if (cancelled) return;
@@ -371,14 +400,21 @@ export default function Home() {
       window.addEventListener("pageshow", wakeMap);
       document.addEventListener("visibilitychange", handleVisibility);
       map.on("moveend", scheduleTilePrefetch);
+      map.on("moveend", syncViewportBounds);
+      map.on("dragstart", handleDragStart);
+      map.on("dragend", handleDragEnd);
       map.on("idle", scheduleTilePrefetch);
       detachMapWakeups = () => {
         window.clearTimeout(prefetchTimer);
+        window.clearTimeout(clearDraggedTimer);
         resizeObserver.disconnect();
         window.removeEventListener("load", wakeMap);
         window.removeEventListener("pageshow", wakeMap);
         document.removeEventListener("visibilitychange", handleVisibility);
         map.off("moveend", scheduleTilePrefetch);
+        map.off("moveend", syncViewportBounds);
+        map.off("dragstart", handleDragStart);
+        map.off("dragend", handleDragEnd);
         map.off("idle", scheduleTilePrefetch);
       };
 
@@ -395,6 +431,7 @@ export default function Home() {
         map.addSource("clips", {
           type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 14, clusterRadius: 32,
         });
+        map.addSource("active-clip", { type: "geojson", data: placesToGeoJson([]) });
         map.addLayer({
           id: "clip-clusters", type: "symbol", source: "clips", filter: ["has", "point_count"],
           layout: { "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]], "icon-allow-overlap": true },
@@ -413,6 +450,20 @@ export default function Home() {
           filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], true]],
           layout: { "icon-image": "top-star", "icon-size": 1, "icon-allow-overlap": true },
         });
+        map.addLayer({
+          id: "active-clip-point", type: "circle", source: "active-clip",
+          filter: ["==", ["get", "top"], false],
+          paint: {
+            "circle-radius": ["case", ["get", "linked"], 15, 12],
+            "circle-color": ["case", ["get", "linked"], "#c86cff", "#91a5ac"],
+            "circle-stroke-color": "#f0c4ff", "circle-stroke-width": 2.5, "circle-blur": 0.06,
+          },
+        });
+        map.addLayer({
+          id: "active-top-point", type: "symbol", source: "active-clip",
+          filter: ["==", ["get", "top"], true],
+          layout: { "icon-image": "top-star", "icon-size": 3, "icon-allow-overlap": true },
+        });
 
         const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
         const bindPointLayer = (layerId: string) => {
@@ -420,10 +471,12 @@ export default function Home() {
             map.getCanvas().style.cursor = "pointer";
             const feature = event.features?.[0];
             if (!feature || feature.geometry.type !== "Point") return;
+            const place = places.find((item) => item.id === Number(feature.properties?.id));
+            setMapHoveredPlace(place ?? null);
             popup.setLngLat(feature.geometry.coordinates as [number, number])
               .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
           });
-          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
+          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; setMapHoveredPlace(null); popup.remove(); });
           map.on("click", layerId, (event) => {
             const id = Number(event.features?.[0]?.properties?.id);
             const place = places.find((item) => item.id === id);
@@ -471,6 +524,7 @@ export default function Home() {
         }).catch(() => {});
 
         setMapReady(true);
+        syncViewportBounds();
         wakeMap();
       });
     });
@@ -488,6 +542,12 @@ export default function Home() {
   }, [mapReady, visiblePlaces]);
 
   useEffect(() => {
+    const source = mapRef.current?.getSource("active-clip") as GeoJSONSource | undefined;
+    if (!mapReady || !source) return;
+    source.setData(placesToGeoJson(highlightedPlace ? [highlightedPlace] : []));
+  }, [highlightedPlace, mapReady]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
     if (!visiblePlaces.length) {
@@ -497,8 +557,9 @@ export default function Home() {
       return;
     }
     const timeout = window.setTimeout(() => {
+      const panelWidth = listOpen ? (listPanelRef.current?.getBoundingClientRect().width ?? 0) : 0;
       if (visiblePlaces.length === 1) {
-        map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, duration: 650 });
+        map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, offset: [panelWidth / 2, 0], duration: 650 });
         return;
       }
       const west = Math.min(...visiblePlaces.map((place) => place.longitude));
@@ -506,7 +567,9 @@ export default function Home() {
       const south = Math.min(...visiblePlaces.map((place) => place.latitude));
       const north = Math.max(...visiblePlaces.map((place) => place.latitude));
       const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
-      map.fitBounds([[west, south], [east, north]], { padding: 54, maxZoom, duration: 650 });
+      map.fitBounds([[west, south], [east, north]], {
+        padding: { top: 54, right: 54, bottom: 54, left: panelWidth + 54 }, maxZoom, duration: 650,
+      });
     }, searchTokens.length ? 260 : 0);
     return () => window.clearTimeout(timeout);
   }, [mapReady, searchTokens.length, visiblePlaces]);
@@ -569,8 +632,18 @@ export default function Home() {
   useEffect(() => {
     if (!listOpen) return;
     const close = (event: KeyboardEvent) => event.key === "Escape" && setListOpen(false);
+    const closeFromOutside = (event: MouseEvent) => {
+      if (mapWasDraggedRef.current) return;
+      const target = event.target as Node | null;
+      if (target && (listPanelRef.current?.contains(target) || listToggleRef.current?.contains(target))) return;
+      setListOpen(false);
+    };
     document.addEventListener("keydown", close);
-    return () => document.removeEventListener("keydown", close);
+    document.addEventListener("click", closeFromOutside, true);
+    return () => {
+      document.removeEventListener("keydown", close);
+      document.removeEventListener("click", closeFromOutside, true);
+    };
   }, [listOpen]);
 
   useEffect(() => {
@@ -618,6 +691,30 @@ export default function Home() {
       setListSort(nextSort);
       setListSortDirection(nextSort === "date" ? "desc" : "asc");
     }
+  };
+
+  const clearAllFilters = () => {
+    if (!hasActiveFilters) return;
+    setSelectedCategories(categories);
+    setSelectedCountries(countries);
+    setTopOnly(false);
+    setListTopOnly(false);
+    setSearchQuery("");
+    setSearchFocused(false);
+    setActiveListPlace(null);
+    setHoveredListPlace(null);
+    searchOriginRef.current = null;
+    const map = mapRef.current;
+    if (!map || !places.length) return;
+    const west = Math.min(...places.map((place) => place.longitude));
+    const east = Math.max(...places.map((place) => place.longitude));
+    const south = Math.min(...places.map((place) => place.latitude));
+    const north = Math.max(...places.map((place) => place.latitude));
+    map.stop();
+    const panelWidth = listOpen ? (listPanelRef.current?.getBoundingClientRect().width ?? 0) : 0;
+    map.fitBounds([[west, south], [east, north]], {
+      padding: { top: 64, right: 64, bottom: 64, left: panelWidth + 64 }, maxZoom: 7, duration: 700,
+    });
   };
   const parent = typeof window === "undefined" ? "localhost" : window.location.hostname;
   const clipId = selected ? getClipId(selected.clipUrl) : "";
@@ -717,12 +814,12 @@ export default function Home() {
         )}
       </div>
 
-      {listOpen && <button className="clip-list-dismiss" type="button" onClick={() => setListOpen(false)} aria-label="Lista bezárása" />}
       <div className={`clip-list-shell ${listOpen ? "open" : ""}`}>
         <aside className="clip-list-panel" ref={listPanelRef} aria-label="Kliplista">
           <div className="clip-list-heading">
             <div className="clip-list-titlebar"><h2>Lista</h2><small>{listPlaces.length} klip</small></div>
             <div className="clip-list-toolbar">
+              <button type="button" className="list-clear-button" disabled={!hasActiveFilters} onClick={clearAllFilters}>ÖSSZES</button>
               <button type="button" className={`list-top-toggle ${listTopOnly ? "active" : ""}`}
                 aria-pressed={listTopOnly} onClick={() => setListTopOnly((onlyTop) => !onlyTop)}>
                 <span aria-hidden="true"><i /></span>TOP
@@ -752,7 +849,7 @@ export default function Home() {
             )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
           </div>
         </aside>
-        <button className="clip-list-toggle" type="button" onClick={() => setListOpen((open) => !open)}
+        <button className="clip-list-toggle" ref={listToggleRef} type="button" onClick={() => setListOpen((open) => !open)}
           aria-expanded={listOpen} aria-label={listOpen ? "Lista bezárása" : "Lista megnyitása"}>
           <span aria-hidden="true">›</span><b>Lista</b>
         </button>
