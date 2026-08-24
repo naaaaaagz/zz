@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const SOURCE = "1ZmgPHO2blY5aPFv97Ra_8kO2MexeO_SScGGjbS134ZQ";
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
 const LIVE_URL = "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live";
+const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
 const twitchMetadata = JSON.parse(readFileSync(new URL("../data/twitch-meta.json", import.meta.url), "utf8"));
 const appCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
@@ -59,11 +60,8 @@ const html = `<!doctype html>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071118">
   <title>ZedTheCyclist — Zarándoklatai</title>
-  <link rel="preconnect" href="https://basemaps.cartocdn.com">
-  <link rel="preconnect" href="https://server.arcgisonline.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <link rel="preconnect" href="https://tiles.basemaps.cartocdn.com">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.5.0/dist/maplibre-gl.css" crossorigin="anonymous">
   <style>${appCss}</style>
   <style>
     .filters-panel,.filter-dismiss,.modal-backdrop{display:none}
@@ -121,8 +119,7 @@ const html = `<!doctype html>
     </div>
   </main>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@6.5.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
   <script>
     const places=${data};
     const categories=${JSON.stringify(categories)},countries=${JSON.stringify(countries)};
@@ -134,40 +131,40 @@ const html = `<!doctype html>
 
     fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
 
-    const mapLoading=document.getElementById("map-loading");let hideLoadingTimer=0,maxLoadingTimer=0,coverageTimer=0,coverageFrame=0,viewTransitioning=false,blockingLoadActive=true;
-    function showMapLoading(){if(!blockingLoadActive)return;clearTimeout(hideLoadingTimer);mapLoading.classList.add("visible")}
-    function startBlockingMapLoad(){blockingLoadActive=true;showMapLoading();clearTimeout(maxLoadingTimer);maxLoadingTimer=setTimeout(()=>{blockingLoadActive=false;mapLoading.classList.remove("visible")},4500)}
-    function visibleBaseTilesReady(){const pixelBounds=map.getPixelBounds(),tileSize=256,zoom=map.getZoom(),worldTiles=2**zoom,minX=Math.floor(pixelBounds.min.x/tileSize),maxX=Math.floor((pixelBounds.max.x-1)/tileSize),minY=Math.max(0,Math.floor(pixelBounds.min.y/tileSize)),maxY=Math.min(worldTiles-1,Math.floor((pixelBounds.max.y-1)/tileSize)),loadedTiles=new Set(Array.from(document.querySelectorAll(".resilient-map-tile.leaflet-tile-loaded")).filter(tile=>Number(tile.dataset.tileZ)===zoom&&tile.querySelector("img")?.naturalWidth).map(tile=>tile.dataset.tileX+":"+tile.dataset.tileY));for(let x=minX;x<=maxX;x+=1){const wrappedX=((x%worldTiles)+worldTiles)%worldTiles;for(let y=minY;y<=maxY;y+=1)if(!loadedTiles.has(wrappedX+":"+y))return false}return loadedTiles.size>0}
-    function verifyMapCoverage(){clearTimeout(coverageTimer);if(viewTransitioning||!visibleBaseTilesReady()){if(blockingLoadActive){showMapLoading();coverageTimer=setTimeout(verifyMapCoverage,80)}return}if(!blockingLoadActive)return;clearTimeout(hideLoadingTimer);hideLoadingTimer=setTimeout(()=>{if(viewTransitioning||!visibleBaseTilesReady())verifyMapCoverage();else{blockingLoadActive=false;clearTimeout(maxLoadingTimer);mapLoading.classList.remove("visible")}},80)}
-    function requestCoverageCheck(){cancelAnimationFrame(coverageFrame);coverageFrame=requestAnimationFrame(verifyMapCoverage)}
-    const map=L.map("map",{center:[47.8,13.9],zoom:4,minZoom:2,maxZoom:16,zoomControl:false,attributionControl:false,fadeAnimation:false,zoomAnimation:false,markerZoomAnimation:false});
-    startBlockingMapLoad();const successfulTileUrls=new Map();
-    L.control.zoom({position:"bottomright"}).addTo(map);L.control.attribution({position:"bottomleft",prefix:false}).addTo(map);
-    function addBufferedTileLayer(url,attribution="",options={},resilient=false){
-      const tileLayer=L.tileLayer(url,{maxZoom:16,keepBuffer:4,updateWhenIdle:false,updateWhenZooming:false,updateInterval:120,attribution,...options}),getVisiblePixelBounds=tileLayer._getTiledPixelBounds.bind(tileLayer);
-      tileLayer._getTiledPixelBounds=center=>{const visibleBounds=getVisiblePixelBounds(center),edgeBuffer=map.getZoom()<=12?tileLayer.getTileSize():L.point(0,0);return L.bounds(visibleBounds.min.subtract(edgeBuffer),visibleBounds.max.add(edgeBuffer))};
-      if(resilient)tileLayer.createTile=(coords,done)=>{const size=tileLayer.getTileSize(),tile=document.createElement("div"),subdomains=["a","b","c","d"],retina=L.Browser.retina?"@2x":"";let finished=false;tile.className="resilient-map-tile";tile.style.width=size.x+"px";tile.style.height=size.y+"px";tile.dataset.tileX=String(coords.x);tile.dataset.tileY=String(coords.y);tile.dataset.tileZ=String(coords.z);tile.dataset.provider=coords.z>12?"esri":"carto";
-        const tileUrl=(x,y,z,attempt)=>{if(z>12)return "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/"+z+"/"+y+"/"+x;const subdomain=subdomains[Math.abs(x+y+attempt)%subdomains.length];return url.replace("{s}",subdomain).replace("{z}",String(z)).replace("{x}",String(x)).replace("{y}",String(y)).replace("{r}",retina)},tileKey=(x,y,z)=>(z>12?"esri":"carto")+":"+z+":"+x+":"+y;
-        const complete=(image,fallbackLevel,x,y,z)=>{if(finished||tile.dataset.cancelled==="true")return;finished=true;successfulTileUrls.set(tileKey(x,y,z),image.src);const factor=2**fallbackLevel,offsetX=((coords.x%factor)+factor)%factor,offsetY=((coords.y%factor)+factor)%factor;image.style.width=size.x*factor+"px";image.style.height=size.y*factor+"px";image.style.left=-offsetX*size.x+"px";image.style.top=-offsetY*size.y+"px";done(null,tile)};
-        const load=(fallbackLevel,attempt=0)=>{if(finished||tile.dataset.cancelled==="true")return;const factor=2**fallbackLevel,x=Math.floor(coords.x/factor),y=Math.floor(coords.y/factor),z=coords.z-fallbackLevel,image=document.createElement("img");image.alt="";image.decoding="async";image.onload=()=>complete(image,fallbackLevel,x,y,z);image.onerror=()=>{if(tile.dataset.cancelled==="true")return;if(attempt<2)load(fallbackLevel,attempt+1);else if(fallbackLevel<3&&z>0)load(fallbackLevel+1);else if(!finished){finished=true;done(new Error("Map tile unavailable"),tile)}};tile.replaceChildren(image);image.src=successfulTileUrls.get(tileKey(x,y,z))||tileUrl(x,y,z,attempt)};load(0);return tile};
-      if(resilient){tileLayer.on("tileload tileerror",requestCoverageCheck);tileLayer.on("tileunload",event=>{const tile=event.tile;tile.dataset.cancelled="true";const image=tile.querySelector("img");if(image){image.onload=null;image.onerror=null;image.removeAttribute("src")}})}tileLayer.addTo(map)
-    }
-    addBufferedTileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> &copy; Esri',{subdomains:"abcd"},true);
-    addBufferedTileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}","",{maxNativeZoom:16});
-    map.on("move",requestCoverageCheck);map.on("moveend",requestCoverageCheck);map.on("zoomstart",()=>{viewTransitioning=true});map.on("zoomend",()=>{viewTransitioning=false;requestCoverageCheck()});
-    map.createPane("countryBorders");map.getPane("countryBorders").style.zIndex="350";
-    fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(geoJson)L.geoJSON(geoJson,{pane:"countryBorders",interactive:false,style:{color:"#86a8b3",weight:1.5,opacity:.68,fillOpacity:0}}).addTo(map)}).catch(()=>{});
+    const mapLoading=document.getElementById("map-loading");
+    const map=new maplibregl.Map({container:"map",style:"${MAP_STYLE_URL}",center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0});
+    map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
+    map.addControl(new maplibregl.AttributionControl({compact:true}),"bottom-left");
+    const loadingTimeout=setTimeout(()=>mapLoading.classList.remove("visible"),5000);
+    map.once("idle",()=>{clearTimeout(loadingTimeout);mapLoading.classList.remove("visible")});
 
-    const clusters=L.markerClusterGroup({maxClusterRadius:zoom=>zoom>=15?18:zoom>=10?24:32,showCoverageOnHover:false,zoomToBoundsOnClick:true,spiderfyOnMaxZoom:true,removeOutsideVisibleBounds:true,iconCreateFunction:cluster=>{const count=cluster.getChildCount(),size=count>=100?42:count>=10?36:31;return L.divIcon({className:"clip-cluster-wrapper",html:'<span class="clip-cluster"><b>'+count+'</b></span>',iconSize:[size,size]})}}).addTo(map);
-    const bounds=L.latLngBounds(places.map(place=>[place.latitude,place.longitude]));if(bounds.isValid())map.fitBounds(bounds.pad(.06),{maxZoom:7});
+    function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Untitled clip",linked:Boolean(place.clipUrl),top:place.top}}))}}
+    function addTopStar(){const size=40,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return;const outer=17,inner=7.4,center=size/2;context.beginPath();for(let index=0;index<10;index+=1){const radius=index%2===0?outer:inner,angle=-Math.PI/2+index*Math.PI/5,x=center+Math.cos(angle)*radius,y=center+Math.sin(angle)*radius;index===0?context.moveTo(x,y):context.lineTo(x,y)}context.closePath();const gradient=context.createLinearGradient(8,6,31,34);gradient.addColorStop(0,"#f1a4ff");gradient.addColorStop(.58,"#a64cff");gradient.addColorStop(1,"#7047e8");context.fillStyle=gradient;context.fill();context.lineWidth=2.5;context.strokeStyle="#07141c";context.stroke();map.addImage("top-star",context.getImageData(0,0,size,size),{pixelRatio:2})}
+
+    let mapReady=false;
+    map.on("load",()=>{
+      for(const layer of map.getStyle().layers||[]){const textField=layer.type==="symbol"&&layer.layout&&layer.layout["text-field"];if(typeof textField==="string"&&textField.includes("{name}"))map.setLayoutProperty(layer.id,"text-field",["coalesce",["get","name_en"],["get","name"]])}
+      map.addSource("clips",{type:"geojson",data:placesToGeoJson(places),cluster:true,clusterMaxZoom:16,clusterRadius:32});
+      map.addLayer({id:"clip-clusters",type:"circle",source:"clips",filter:["has","point_count"],paint:{"circle-color":"#2b203f","circle-radius":["step",["get","point_count"],16,10,18,100,21],"circle-stroke-color":"#dc97ff","circle-stroke-width":2,"circle-blur":.03,"circle-opacity":.96}});
+      map.addLayer({id:"clip-cluster-count",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"text-field":["get","point_count_abbreviated"],"text-size":11,"text-allow-overlap":true},paint:{"text-color":"#fff","text-halo-color":"rgba(7,17,24,.55)","text-halo-width":.6}});
+      map.addLayer({id:"clip-points",type:"circle",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],false]],paint:{"circle-radius":["case",["get","linked"],5,4],"circle-color":["case",["get","linked"],"#bd5cff","#7c9299"],"circle-stroke-color":"#07141c","circle-stroke-width":1.5}});
+      addTopStar();
+      map.addLayer({id:"top-points",type:"symbol",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],true]],layout:{"icon-image":"top-star","icon-size":1,"icon-allow-overlap":true}});
+      const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:"clip-map-tooltip"});
+      function bindPointLayer(layerId){map.on("mouseenter",layerId,event=>{map.getCanvas().style.cursor="pointer";const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.name||"Untitled clip").addTo(map)});map.on("mouseleave",layerId,()=>{map.getCanvas().style.cursor="";popup.remove()});map.on("click",layerId,event=>{const id=Number(event.features&&event.features[0]&&event.features[0].properties.id),place=places.find(item=>item.id===id);if(place&&place.clipUrl)openClip(place)})}
+      bindPointLayer("clip-points");bindPointLayer("top-points");
+      map.on("mouseenter","clip-clusters",()=>{map.getCanvas().style.cursor="pointer"});map.on("mouseleave","clip-clusters",()=>{map.getCanvas().style.cursor=""});
+      map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;map.getSource("clips").getClusterExpansionZoom(Number(feature.properties.cluster_id)).then(zoom=>map.easeTo({center:feature.geometry.coordinates,zoom,duration:520})).catch(()=>{})});
+      fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(!geoJson||map.getSource("country-borders"))return;map.addSource("country-borders",{type:"geojson",data:geoJson});map.addLayer({id:"country-borders",type:"line",source:"country-borders",paint:{"line-color":"#86a8b3","line-width":["interpolate",["linear"],["zoom"],2,1.1,8,1.6,14,2],"line-opacity":.68}},"clip-clusters")}).catch(()=>{});
+      mapReady=true;renderMarkers(true);
+    });
 
     const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge");
     function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren();document.body.classList.remove("modal-open")}
     function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
     let fitTimer=0;
-    function fitVisible(visible,tokens){clearTimeout(fitTimer);if(!visible.length)return;fitTimer=setTimeout(()=>{startBlockingMapLoad();if(visible.length===1)map.setView([visible[0].latitude,visible[0].longitude],14,{animate:false});else{const bounds=L.latLngBounds(visible.map(place=>[place.latitude,place.longitude])),maxZoom=visible.length<=4?13:visible.length<=20?11:7;map.fitBounds(bounds,{padding:[54,54],maxZoom,animate:false})}setTimeout(verifyMapCoverage,1000)},tokens.length?260:0)}
-    function renderMarkers(){clusters.clearLayers();const tokens=normalizeSearch(searchQuery).split(/\\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords].join(" "));return tokens.every(token=>haystack.includes(token))});document.getElementById("map").dataset.visibleCount=String(visible.length);visible.forEach(place=>{const type=place.top?"top":place.clipUrl?"clip":"unlinked",size=place.top?17:place.clipUrl?12:10;const marker=L.marker([place.latitude,place.longitude],{icon:L.divIcon({className:"clip-marker-wrapper",html:'<span class="clip-marker '+type+'"></span>',iconSize:[size,size],iconAnchor:[size/2,size/2]}),keyboard:Boolean(place.clipUrl),bubblingMouseEvents:false});marker.bindTooltip(escapeHtml(place.name||"Untitled clip"),{direction:"top",offset:[0,place.top?-10:-8],opacity:1});if(place.clipUrl)marker.on("click",()=>openClip(place));clusters.addLayer(marker)});fitVisible(visible,tokens)}
-    renderMarkers();requestAnimationFrame(()=>map.invalidateSize());
+    function fitVisible(visible,tokens,initial=false){clearTimeout(fitTimer);if(!visible.length)return;fitTimer=setTimeout(()=>{if(visible.length===1)map.easeTo({center:[visible[0].longitude,visible[0].latitude],zoom:14,duration:initial?0:650});else{const west=Math.min(...visible.map(place=>place.longitude)),east=Math.max(...visible.map(place=>place.longitude)),south=Math.min(...visible.map(place=>place.latitude)),north=Math.max(...visible.map(place=>place.latitude)),maxZoom=visible.length<=4?13:visible.length<=20?11:7;map.fitBounds([[west,south],[east,north]],{padding:54,maxZoom,duration:initial?0:650})}},initial?0:tokens.length?260:0)}
+    function renderMarkers(initial=false){const tokens=normalizeSearch(searchQuery).split(/\\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords].join(" "));return tokens.every(token=>haystack.includes(token))});document.getElementById("map").dataset.visibleCount=String(visible.length);if(mapReady)map.getSource("clips").setData(placesToGeoJson(visible));fitVisible(visible,tokens,initial)}
 
     const filterButton=document.getElementById("filter-button"),filtersPanel=document.getElementById("filters-panel"),filterDismiss=document.getElementById("filter-dismiss");
     function setFiltersOpen(open){filterButton.setAttribute("aria-expanded",String(open));filtersPanel.classList.toggle("open",open);filterDismiss.classList.toggle("open",open)}

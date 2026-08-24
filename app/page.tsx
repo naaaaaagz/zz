@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Bounds, Coords, DoneCallback, LatLng, LayerGroup, Map as LeafletMap } from "leaflet";
-import "leaflet/dist/leaflet.css";
-import "leaflet.markercluster";
-import "leaflet.markercluster/dist/MarkerCluster.css";
-import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
+const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
 
 type Place = {
@@ -28,6 +26,43 @@ function countValues(values: string[]) {
 function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("hu-HU")
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function placesToGeoJson(places: Place[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: places.map((place) => ({
+      type: "Feature" as const,
+      id: place.id,
+      geometry: { type: "Point" as const, coordinates: [place.longitude, place.latitude] },
+      properties: {
+        id: place.id, name: place.name || "Untitled clip", linked: Boolean(place.clipUrl), top: place.top,
+      },
+    })),
+  };
+}
+
+function makeTopStar() {
+  const size = 40;
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const outer = 17; const inner = 7.4; const center = size / 2;
+  context.beginPath();
+  for (let index = 0; index < 10; index += 1) {
+    const radius = index % 2 === 0 ? outer : inner;
+    const angle = -Math.PI / 2 + index * Math.PI / 5;
+    const x = center + Math.cos(angle) * radius;
+    const y = center + Math.sin(angle) * radius;
+    if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  context.closePath();
+  const gradient = context.createLinearGradient(8, 6, 31, 34);
+  gradient.addColorStop(0, "#f1a4ff"); gradient.addColorStop(0.58, "#a64cff"); gradient.addColorStop(1, "#7047e8");
+  context.fillStyle = gradient; context.fill();
+  context.lineWidth = 2.5; context.strokeStyle = "#07141c"; context.stroke();
+  return context.getImageData(0, 0, size, size);
 }
 
 function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string; title: string }) {
@@ -53,10 +88,7 @@ function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string;
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapLoadingRef = useRef<HTMLDivElement>(null);
-  const startMapLoadingRef = useRef<() => void>(() => {});
-  const finishMapLoadingRef = useRef<() => void>(() => {});
-  const mapRef = useRef<LeafletMap | null>(null);
-  const markerLayerRef = useRef<LayerGroup | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [selected, setSelected] = useState<Place | null>(null);
@@ -111,250 +143,117 @@ export default function Home() {
   useEffect(() => {
     if (!mapContainer.current || mapRef.current || !places.length) return;
     let cancelled = false;
-    import("leaflet").then((leaflet) => {
+    let initialLoadingTimer = 0;
+    import("maplibre-gl").then(({ default: maplibregl }) => {
       if (cancelled || !mapContainer.current) return;
-      const map = leaflet.map(mapContainer.current, {
-        center: [47.8, 13.9], zoom: 4, minZoom: 2, maxZoom: 16,
-        zoomControl: false, attributionControl: false, fadeAnimation: false,
-        zoomAnimation: false, markerZoomAnimation: false,
+      const map = new maplibregl.Map({
+        container: mapContainer.current,
+        style: MAP_STYLE_URL,
+        center: [13.9, 47.8], zoom: 4, minZoom: 2, maxZoom: 17,
+        attributionControl: false, fadeDuration: 0,
       });
       mapRef.current = map;
-      leaflet.control.zoom({ position: "bottomright" }).addTo(map);
-      leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-      let hideLoadingTimer = 0;
-      let maxLoadingTimer = 0;
-      let coverageTimer = 0;
-      let coverageFrame = 0;
-      let viewTransitioning = false;
-      let blockingLoadActive = true;
-      const showMapLoading = () => {
-        if (!blockingLoadActive) return;
-        window.clearTimeout(hideLoadingTimer);
-        mapLoadingRef.current?.classList.add("visible");
-      };
-      const startBlockingMapLoad = () => {
-        blockingLoadActive = true;
-        showMapLoading();
-        window.clearTimeout(maxLoadingTimer);
-        maxLoadingTimer = window.setTimeout(() => {
-          blockingLoadActive = false;
-          mapLoadingRef.current?.classList.remove("visible");
-        }, 4500);
-      };
-      const visibleBaseTilesReady = () => {
-        const pixelBounds = map.getPixelBounds();
-        const tileSize = 256;
-        const zoom = map.getZoom();
-        const worldTiles = 2 ** zoom;
-        const minX = Math.floor(pixelBounds.min.x / tileSize);
-        const maxX = Math.floor((pixelBounds.max.x - 1) / tileSize);
-        const minY = Math.max(0, Math.floor(pixelBounds.min.y / tileSize));
-        const maxY = Math.min(worldTiles - 1, Math.floor((pixelBounds.max.y - 1) / tileSize));
-        const loadedTiles = new Set(
-          Array.from(mapContainer.current?.querySelectorAll<HTMLElement>(".resilient-map-tile.leaflet-tile-loaded") ?? [])
-            .filter((tile) => Number(tile.dataset.tileZ) === zoom && Boolean(tile.querySelector("img")?.naturalWidth))
-            .map((tile) => `${tile.dataset.tileX}:${tile.dataset.tileY}`),
-        );
-        for (let x = minX; x <= maxX; x += 1) {
-          const wrappedX = ((x % worldTiles) + worldTiles) % worldTiles;
-          for (let y = minY; y <= maxY; y += 1) {
-            if (!loadedTiles.has(`${wrappedX}:${y}`)) return false;
+      const hideInitialLoading = () => mapLoadingRef.current?.classList.remove("visible");
+      initialLoadingTimer = window.setTimeout(hideInitialLoading, 5000);
+      map.once("idle", () => { window.clearTimeout(initialLoadingTimer); hideInitialLoading(); });
+
+      map.on("load", () => {
+        if (cancelled) return;
+        const style = map.getStyle();
+        for (const layer of style.layers ?? []) {
+          if (layer.type !== "symbol") continue;
+          const textField = layer.layout?.["text-field"];
+          if (typeof textField === "string" && textField.includes("{name}")) {
+            map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name_en"], ["get", "name"]]);
           }
         }
-        return loadedTiles.size > 0;
-      };
-      const verifyMapCoverage = () => {
-        window.clearTimeout(coverageTimer);
-        if (viewTransitioning || !visibleBaseTilesReady()) {
-          if (blockingLoadActive) {
-            showMapLoading();
-            coverageTimer = window.setTimeout(verifyMapCoverage, 80);
-          }
-          return;
-        }
-        if (!blockingLoadActive) return;
-        window.clearTimeout(hideLoadingTimer);
-        hideLoadingTimer = window.setTimeout(() => {
-          if (viewTransitioning || !visibleBaseTilesReady()) verifyMapCoverage();
-          else {
-            blockingLoadActive = false;
-            window.clearTimeout(maxLoadingTimer);
-            mapLoadingRef.current?.classList.remove("visible");
-          }
-        }, 80);
-      };
-      const requestCoverageCheck = () => {
-        window.cancelAnimationFrame(coverageFrame);
-        coverageFrame = window.requestAnimationFrame(verifyMapCoverage);
-      };
-      startMapLoadingRef.current = startBlockingMapLoad;
-      finishMapLoadingRef.current = verifyMapCoverage;
-      startBlockingMapLoad();
 
-      const successfulTileUrls = new Map<string, string>();
+        map.addSource("clips", {
+          type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 16, clusterRadius: 32,
+        });
+        map.addLayer({
+          id: "clip-clusters", type: "circle", source: "clips", filter: ["has", "point_count"],
+          paint: {
+            "circle-color": "#2b203f", "circle-radius": ["step", ["get", "point_count"], 16, 10, 18, 100, 21],
+            "circle-stroke-color": "#dc97ff", "circle-stroke-width": 2,
+            "circle-blur": 0.03, "circle-opacity": 0.96,
+          },
+        });
+        map.addLayer({
+          id: "clip-cluster-count", type: "symbol", source: "clips", filter: ["has", "point_count"],
+          layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 11, "text-allow-overlap": true },
+          paint: { "text-color": "#ffffff", "text-halo-color": "rgba(7,17,24,.55)", "text-halo-width": 0.6 },
+        });
+        map.addLayer({
+          id: "clip-points", type: "circle", source: "clips",
+          filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], false]],
+          paint: {
+            "circle-radius": ["case", ["get", "linked"], 5, 4],
+            "circle-color": ["case", ["get", "linked"], "#bd5cff", "#7c9299"],
+            "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
+          },
+        });
+        const star = makeTopStar();
+        if (star) map.addImage("top-star", star, { pixelRatio: 2 });
+        map.addLayer({
+          id: "top-points", type: "symbol", source: "clips",
+          filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], true]],
+          layout: { "icon-image": "top-star", "icon-size": 1, "icon-allow-overlap": true },
+        });
 
-      const addBufferedTileLayer = (
-        url: string, attribution = "",
-        options: { subdomains?: string; maxNativeZoom?: number } = {}, resilient = false,
-      ) => {
-        const tileLayer = leaflet.tileLayer(url, { maxZoom: 16, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: false, updateInterval: 120, attribution, ...options });
-        const bufferedLayer = tileLayer as typeof tileLayer & { _getTiledPixelBounds(center: LatLng): Bounds };
-        const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
-        bufferedLayer._getTiledPixelBounds = (center) => {
-          const visibleBounds = getVisiblePixelBounds(center);
-          const edgeBuffer = map.getZoom() <= 12 ? bufferedLayer.getTileSize() : leaflet.point(0, 0);
-          return leaflet.bounds(visibleBounds.min.subtract(edgeBuffer), visibleBounds.max.add(edgeBuffer));
+        const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
+        const bindPointLayer = (layerId: string) => {
+          map.on("mouseenter", layerId, (event) => {
+            map.getCanvas().style.cursor = "pointer";
+            const feature = event.features?.[0];
+            if (!feature || feature.geometry.type !== "Point") return;
+            popup.setLngLat(feature.geometry.coordinates as [number, number])
+              .setText(String(feature.properties?.name ?? "Untitled clip")).addTo(map);
+          });
+          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
+          map.on("click", layerId, (event) => {
+            const id = Number(event.features?.[0]?.properties?.id);
+            const place = places.find((item) => item.id === id);
+            if (place?.clipUrl) setSelected(place);
+          });
         };
+        bindPointLayer("clip-points"); bindPointLayer("top-points");
+        map.on("mouseenter", "clip-clusters", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "clip-clusters", () => { map.getCanvas().style.cursor = ""; });
+        map.on("click", "clip-clusters", (event) => {
+          const feature = event.features?.[0];
+          if (!feature || feature.geometry.type !== "Point") return;
+          const clusterId = Number(feature.properties?.cluster_id);
+          (map.getSource("clips") as GeoJSONSource).getClusterExpansionZoom(clusterId).then((zoom) => {
+            map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom, duration: 520 });
+          }).catch(() => {});
+        });
 
-        if (resilient) {
-          const resilientLayer = bufferedLayer as typeof bufferedLayer & {
-            createTile(coords: Coords, done: DoneCallback): HTMLElement;
-          };
-          resilientLayer.createTile = (coords, done) => {
-            const size = resilientLayer.getTileSize();
-            const tile = document.createElement("div");
-            tile.className = "resilient-map-tile";
-            tile.style.width = `${size.x}px`;
-            tile.style.height = `${size.y}px`;
-            tile.dataset.tileX = String(coords.x);
-            tile.dataset.tileY = String(coords.y);
-            tile.dataset.tileZ = String(coords.z);
-            tile.dataset.provider = coords.z > 12 ? "esri" : "carto";
-            const subdomains = ["a", "b", "c", "d"];
-            const retina = leaflet.Browser.retina ? "@2x" : "";
-            let finished = false;
+        fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
+          if (cancelled || !geoJson || map.getSource("country-borders")) return;
+          map.addSource("country-borders", { type: "geojson", data: geoJson });
+          map.addLayer({
+            id: "country-borders", type: "line", source: "country-borders",
+            paint: { "line-color": "#86a8b3", "line-width": ["interpolate", ["linear"], ["zoom"], 2, 1.1, 8, 1.6, 14, 2], "line-opacity": 0.68 },
+          }, "clip-clusters");
+        }).catch(() => {});
 
-            const tileUrl = (x: number, y: number, z: number, attempt: number) => {
-              if (z > 12) {
-                return `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`;
-              }
-              const subdomain = subdomains[Math.abs(x + y + attempt) % subdomains.length];
-              return url.replace("{s}", subdomain).replace("{z}", String(z))
-                .replace("{x}", String(x)).replace("{y}", String(y)).replace("{r}", retina);
-            };
-            const tileKey = (x: number, y: number, z: number) => `${z > 12 ? "esri" : "carto"}:${z}:${x}:${y}`;
-            const complete = (image: HTMLImageElement, fallbackLevel: number, x: number, y: number, z: number) => {
-              if (finished || tile.dataset.cancelled === "true") return;
-              finished = true;
-              successfulTileUrls.set(tileKey(x, y, z), image.src);
-              const factor = 2 ** fallbackLevel;
-              const offsetX = ((coords.x % factor) + factor) % factor;
-              const offsetY = ((coords.y % factor) + factor) % factor;
-              image.style.width = `${size.x * factor}px`;
-              image.style.height = `${size.y * factor}px`;
-              image.style.left = `${-offsetX * size.x}px`;
-              image.style.top = `${-offsetY * size.y}px`;
-              done(undefined, tile);
-            };
-            const load = (fallbackLevel: number, attempt = 0) => {
-              if (finished || tile.dataset.cancelled === "true") return;
-              const factor = 2 ** fallbackLevel;
-              const x = Math.floor(coords.x / factor);
-              const y = Math.floor(coords.y / factor);
-              const z = coords.z - fallbackLevel;
-              const image = document.createElement("img");
-              image.alt = "";
-              image.decoding = "async";
-              image.onload = () => complete(image, fallbackLevel, x, y, z);
-              image.onerror = () => {
-                if (tile.dataset.cancelled === "true") return;
-                if (attempt < 2) load(fallbackLevel, attempt + 1);
-                else if (fallbackLevel < 3 && z > 0) load(fallbackLevel + 1);
-                else if (!finished) { finished = true; done(new Error("Map tile unavailable"), tile); }
-              };
-              tile.replaceChildren(image);
-              image.src = successfulTileUrls.get(tileKey(x, y, z)) ?? tileUrl(x, y, z, attempt);
-            };
-            load(0);
-            return tile;
-          };
-        }
-
-        if (resilient) {
-          tileLayer.on("tileload tileerror", requestCoverageCheck);
-          tileLayer.on("tileunload", (event) => {
-            const tile = event.tile as HTMLElement;
-            tile.dataset.cancelled = "true";
-            const image = tile.querySelector("img");
-            if (image) { image.onload = null; image.onerror = null; image.removeAttribute("src"); }
-          });
-        }
-        tileLayer.addTo(map);
-      };
-      addBufferedTileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> &copy; Esri',
-        { subdomains: "abcd" }, true,
-      );
-      addBufferedTileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-        "", { maxNativeZoom: 16 },
-      );
-      map.on("move", requestCoverageCheck);
-      map.on("moveend", requestCoverageCheck);
-      map.on("zoomstart", () => { viewTransitioning = true; });
-      map.on("zoomend", () => { viewTransitioning = false; requestCoverageCheck(); });
-
-      map.createPane("countryBorders");
-      const borderPane = map.getPane("countryBorders");
-      if (borderPane) borderPane.style.zIndex = "350";
-      fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
-        if (!cancelled && geoJson) leaflet.geoJSON(geoJson, {
-          pane: "countryBorders", interactive: false,
-          style: { color: "#86a8b3", weight: 1.5, opacity: 0.68, fillOpacity: 0 },
-        }).addTo(map);
-      }).catch(() => {});
-
-      const clusters = leaflet.markerClusterGroup({
-        maxClusterRadius: (zoom) => zoom >= 15 ? 18 : zoom >= 10 ? 24 : 32,
-        showCoverageOnHover: false, zoomToBoundsOnClick: true, spiderfyOnMaxZoom: true,
-        removeOutsideVisibleBounds: true,
-        iconCreateFunction: (cluster) => {
-          const count = cluster.getChildCount();
-          const size = count >= 100 ? 42 : count >= 10 ? 36 : 31;
-          return leaflet.divIcon({
-            className: "clip-cluster-wrapper", html: `<span class="clip-cluster"><b>${count}</b></span>`, iconSize: [size, size],
-          });
-        },
+        setMapReady(true);
       });
-      clusters.addTo(map);
-      markerLayerRef.current = clusters;
-      const bounds = leaflet.latLngBounds(places.map((place) => [place.latitude, place.longitude] as [number, number]));
-      if (bounds.isValid()) map.fitBounds(bounds.pad(0.06), { maxZoom: 7 });
-      requestAnimationFrame(() => map.invalidateSize());
-      setMapReady(true);
     });
     return () => {
-      cancelled = true; startMapLoadingRef.current = () => {}; finishMapLoadingRef.current = () => {};
-      mapRef.current?.remove(); mapRef.current = null; markerLayerRef.current = null;
+      cancelled = true; window.clearTimeout(initialLoadingTimer);
+      mapRef.current?.remove(); mapRef.current = null;
     };
   }, [places]);
 
   useEffect(() => {
-    if (!mapReady || !markerLayerRef.current) return;
-    let cancelled = false;
-    import("leaflet").then((leaflet) => {
-      if (cancelled || !markerLayerRef.current) return;
-      markerLayerRef.current.clearLayers();
-      for (const place of visiblePlaces) {
-        const markerType = place.top ? "top" : place.clipUrl ? "clip" : "unlinked";
-        const size = place.top ? 17 : place.clipUrl ? 12 : 10;
-        const marker = leaflet.marker([place.latitude, place.longitude], {
-          icon: leaflet.divIcon({
-            className: "clip-marker-wrapper", html: `<span class="clip-marker ${markerType}"></span>`,
-            iconSize: [size, size], iconAnchor: [size / 2, size / 2],
-          }),
-          keyboard: Boolean(place.clipUrl), bubblingMouseEvents: false,
-        });
-        marker.bindTooltip(place.name || "Untitled clip", {
-          direction: "top", offset: [0, place.top ? -10 : -8], opacity: 1,
-        });
-        if (place.clipUrl) marker.on("click", () => setSelected(place));
-        markerLayerRef.current.addLayer(marker);
-      }
-    });
-    return () => { cancelled = true; };
+    const source = mapRef.current?.getSource("clips") as GeoJSONSource | undefined;
+    if (!mapReady || !source) return;
+    source.setData(placesToGeoJson(visiblePlaces));
   }, [mapReady, visiblePlaces]);
 
   useEffect(() => {
@@ -362,16 +261,15 @@ export default function Home() {
     if (!mapReady || !map || !visiblePlaces.length) return;
     const timeout = window.setTimeout(() => {
       if (visiblePlaces.length === 1) {
-        startMapLoadingRef.current();
-        map.setView([visiblePlaces[0].latitude, visiblePlaces[0].longitude], 14, { animate: false });
-        window.setTimeout(() => finishMapLoadingRef.current(), 1000);
+        map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, duration: 650 });
         return;
       }
-      const points = visiblePlaces.map((place) => [place.latitude, place.longitude] as [number, number]);
+      const west = Math.min(...visiblePlaces.map((place) => place.longitude));
+      const east = Math.max(...visiblePlaces.map((place) => place.longitude));
+      const south = Math.min(...visiblePlaces.map((place) => place.latitude));
+      const north = Math.max(...visiblePlaces.map((place) => place.latitude));
       const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
-      startMapLoadingRef.current();
-      map.fitBounds(points, { padding: [54, 54], maxZoom, animate: false });
-      window.setTimeout(() => finishMapLoadingRef.current(), 1000);
+      map.fitBounds([[west, south], [east, north]], { padding: 54, maxZoom, duration: 650 });
     }, searchTokens.length ? 260 : 0);
     return () => window.clearTimeout(timeout);
   }, [mapReady, searchTokens.length, visiblePlaces]);
