@@ -1,3 +1,5 @@
+import twitchMetadata from "../../../data/twitch-meta.json";
+
 const SOURCE_PARTS = [
   "MVptZ1BI",
   "TzJibFk1",
@@ -19,6 +21,10 @@ function cell(row: { c?: Cell[] }, index: number) {
   return row.c?.[index]?.v ?? "";
 }
 
+function getClipId(url: string) {
+  return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? "";
+}
+
 export async function GET() {
   const source = decodeSource();
   const endpoint = `https://docs.google.com/spreadsheets/d/${source}/gviz/tq?tqx=out:json&gid=0`;
@@ -34,21 +40,28 @@ export async function GET() {
 
     const places = (payload.table.rows as { c?: Cell[] }[])
       .map((row, index) => {
-        const coordinates = String(cell(row, 4))
+        const coordinates = String(cell(row, 5))
           .split(",")
           .map((value) => Number(value.trim()));
+        const clipUrl = String(cell(row, 1));
+        const clipId = getClipId(clipUrl);
+        const twitch = twitchMetadata[clipId as keyof typeof twitchMetadata];
 
         return {
           id: index + 1,
           name: String(cell(row, 0)),
-          clipUrl: String(cell(row, 1)),
+          clipUrl,
           category: String(cell(row, 2)),
-          keywords: String(cell(row, 3)),
+          sourceKeywords: String(cell(row, 3)),
+          keywords: String(cell(row, 4)),
           latitude: coordinates[0],
           longitude: coordinates[1],
-          twitchTitle: String(cell(row, 5)),
-          country: String(cell(row, 6)),
-          clipDate: String(cell(row, 7)),
+          twitchTitle: String(cell(row, 6)),
+          country: String(cell(row, 7)),
+          clipDate: String(cell(row, 8)),
+          top: String(cell(row, 9)).trim().toUpperCase() === "TOP",
+          twitchCategory: twitch?.category ?? "",
+          twitchKeywords: twitch?.language ?? "",
         };
       })
       .filter(

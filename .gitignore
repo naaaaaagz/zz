@@ -40,3 +40,7 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Local one-time enrichment artifacts
+/data/enriched-keywords.json
+/data/reverse-geocode-cache.json
