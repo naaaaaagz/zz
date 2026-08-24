@@ -20,6 +20,12 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
 .site-shell { position: relative; isolation: isolate; width: 100vw; height: 100dvh; overflow: hidden; background: var(--ink); }
 .map { position: absolute; inset: 0; z-index: 0; isolation: isolate; }
 .map::after { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-shadow: inset 0 0 160px rgba(0, 10, 17, .52); }
+.map-loading { position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; visibility: hidden; opacity: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, #0a1821 0, #071118 48%, #050d13 100%); transition: opacity .14s ease, visibility 0s linear .14s; }
+.map-loading.visible { visibility: visible; opacity: 1; transition: none; }
+.map-loading-spinner { width: 25px; height: 25px; border: 2px solid rgba(192, 92, 255, .16); border-top-color: #c66aff; border-radius: 50%; box-shadow: 0 0 22px rgba(192, 92, 255, .16); animation: map-loading-spin .72s linear infinite; }
+@keyframes map-loading-spin { to { transform: rotate(360deg); } }
+.resilient-map-tile { position: absolute; overflow: hidden; background: #071118; }
+.resilient-map-tile img { position: absolute; display: block; max-width: none !important; border: 0; }
 
 .site-header {
   position: fixed; top: 22px; left: 22px; z-index: 1000;

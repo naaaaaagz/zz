@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Bounds, LatLng, LayerGroup, Map as LeafletMap } from "leaflet";
+import type { Bounds, Coords, DoneCallback, LatLng, LayerGroup, Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
@@ -52,6 +52,8 @@ function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string;
 
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
+  const mapLoadingRef = useRef<HTMLDivElement>(null);
+  const finishMapLoadingRef = useRef<() => void>(() => {});
   const mapRef = useRef<LeafletMap | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
@@ -118,42 +120,141 @@ export default function Home() {
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
 
-      const addBufferedTileLayer = (url: string, attribution = "", options: { subdomains?: string; maxNativeZoom?: number } = {}, preloadTiles = 2) => {
-        const tileLayer = leaflet.tileLayer(url, { maxZoom: 20, keepBuffer: 6, updateWhenIdle: false, updateInterval: 100, attribution, ...options });
+      let hideLoadingTimer = 0;
+      let coverageTimer = 0;
+      let coverageFrame = 0;
+      let viewTransitioning = false;
+      const showMapLoading = () => {
+        window.clearTimeout(hideLoadingTimer);
+        mapLoadingRef.current?.classList.add("visible");
+      };
+      const visibleBaseTilesReady = () => {
+        const pixelBounds = map.getPixelBounds();
+        const tileSize = 256;
+        const zoom = map.getZoom();
+        const worldTiles = 2 ** zoom;
+        const minX = Math.floor(pixelBounds.min.x / tileSize);
+        const maxX = Math.floor((pixelBounds.max.x - 1) / tileSize);
+        const minY = Math.max(0, Math.floor(pixelBounds.min.y / tileSize));
+        const maxY = Math.min(worldTiles - 1, Math.floor((pixelBounds.max.y - 1) / tileSize));
+        const loadedTiles = new Set(
+          Array.from(mapContainer.current?.querySelectorAll<HTMLElement>(".resilient-map-tile.leaflet-tile-loaded") ?? [])
+            .filter((tile) => Number(tile.dataset.tileZ) === zoom && Boolean(tile.querySelector("img")?.naturalWidth))
+            .map((tile) => `${tile.dataset.tileX}:${tile.dataset.tileY}`),
+        );
+        for (let x = minX; x <= maxX; x += 1) {
+          const wrappedX = ((x % worldTiles) + worldTiles) % worldTiles;
+          for (let y = minY; y <= maxY; y += 1) {
+            if (!loadedTiles.has(`${wrappedX}:${y}`)) return false;
+          }
+        }
+        return loadedTiles.size > 0;
+      };
+      const verifyMapCoverage = () => {
+        window.clearTimeout(coverageTimer);
+        if (viewTransitioning || !visibleBaseTilesReady()) {
+          showMapLoading();
+          coverageTimer = window.setTimeout(verifyMapCoverage, 80);
+          return;
+        }
+        window.clearTimeout(hideLoadingTimer);
+        hideLoadingTimer = window.setTimeout(() => {
+          if (viewTransitioning || !visibleBaseTilesReady()) verifyMapCoverage();
+          else mapLoadingRef.current?.classList.remove("visible");
+        }, 80);
+      };
+      const requestCoverageCheck = () => {
+        window.cancelAnimationFrame(coverageFrame);
+        coverageFrame = window.requestAnimationFrame(verifyMapCoverage);
+      };
+      finishMapLoadingRef.current = verifyMapCoverage;
+
+      const addBufferedTileLayer = (
+        url: string, attribution = "",
+        options: { subdomains?: string; maxNativeZoom?: number } = {}, resilient = false,
+      ) => {
+        const tileLayer = leaflet.tileLayer(url, { maxZoom: 20, keepBuffer: 4, updateWhenIdle: false, updateInterval: 120, attribution, ...options });
         const bufferedLayer = tileLayer as typeof tileLayer & { _getTiledPixelBounds(center: LatLng): Bounds };
         const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
         bufferedLayer._getTiledPixelBounds = (center) => {
           const visibleBounds = getVisiblePixelBounds(center);
-          const edgeBuffer = bufferedLayer.getTileSize().multiplyBy(preloadTiles);
+          const edgeBuffer = bufferedLayer.getTileSize();
           return leaflet.bounds(visibleBounds.min.subtract(edgeBuffer), visibleBounds.max.add(edgeBuffer));
         };
-        tileLayer.on("tileerror", (event) => {
-          const tile = event.tile as HTMLImageElement;
-          const retries = Number(tile.dataset.tileRetries ?? 0);
-          if (retries >= 2) return;
-          tile.dataset.tileRetries = String(retries + 1);
-          window.setTimeout(() => {
-            const retryUrl = new URL(tile.src);
-            retryUrl.searchParams.delete("_tileRetry");
+
+        if (resilient) {
+          const resilientLayer = bufferedLayer as typeof bufferedLayer & {
+            createTile(coords: Coords, done: DoneCallback): HTMLElement;
+          };
+          resilientLayer.createTile = (coords, done) => {
+            const size = resilientLayer.getTileSize();
+            const tile = document.createElement("div");
+            tile.className = "resilient-map-tile";
+            tile.style.width = `${size.x}px`;
+            tile.style.height = `${size.y}px`;
+            tile.dataset.tileX = String(coords.x);
+            tile.dataset.tileY = String(coords.y);
+            tile.dataset.tileZ = String(coords.z);
             const subdomains = ["a", "b", "c", "d"];
-            if (subdomains.some((subdomain) => retryUrl.hostname === `${subdomain}.basemaps.cartocdn.com`)) {
-              retryUrl.hostname = `${subdomains[(retries + 1) % subdomains.length]}.basemaps.cartocdn.com`;
-            }
-            retryUrl.searchParams.set("_tileRetry", String(Date.now()));
-            tile.src = retryUrl.toString();
-          }, 160 * (retries + 1));
-        });
+            const retina = leaflet.Browser.retina ? "@2x" : "";
+            let finished = false;
+
+            const tileUrl = (x: number, y: number, z: number, attempt: number) => {
+              const subdomain = subdomains[Math.abs(x + y + attempt) % subdomains.length];
+              const resolved = url.replace("{s}", subdomain).replace("{z}", String(z))
+                .replace("{x}", String(x)).replace("{y}", String(y)).replace("{r}", retina);
+              return attempt ? `${resolved}?_tileRetry=${Date.now()}-${attempt}` : resolved;
+            };
+            const complete = (image: HTMLImageElement, fallbackLevel: number) => {
+              if (finished) return;
+              finished = true;
+              const factor = 2 ** fallbackLevel;
+              const offsetX = ((coords.x % factor) + factor) % factor;
+              const offsetY = ((coords.y % factor) + factor) % factor;
+              image.style.width = `${size.x * factor}px`;
+              image.style.height = `${size.y * factor}px`;
+              image.style.left = `${-offsetX * size.x}px`;
+              image.style.top = `${-offsetY * size.y}px`;
+              done(undefined, tile);
+            };
+            const load = (fallbackLevel: number, attempt = 0) => {
+              const factor = 2 ** fallbackLevel;
+              const x = Math.floor(coords.x / factor);
+              const y = Math.floor(coords.y / factor);
+              const z = coords.z - fallbackLevel;
+              const image = document.createElement("img");
+              image.alt = "";
+              image.decoding = "async";
+              image.onload = () => complete(image, fallbackLevel);
+              image.onerror = () => {
+                if (attempt < 2) load(fallbackLevel, attempt + 1);
+                else if (z > 0) load(fallbackLevel + 1);
+                else if (!finished) done(new Error("Map tile unavailable"), tile);
+              };
+              tile.replaceChildren(image);
+              image.src = tileUrl(x, y, z, attempt);
+            };
+            load(0);
+            return tile;
+          };
+        }
+
+        if (resilient) tileLayer.on("tileload tileerror", requestCoverageCheck);
         tileLayer.addTo(map);
       };
       addBufferedTileLayer(
         "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        { subdomains: "abcd" },
+        { subdomains: "abcd" }, true,
       );
       addBufferedTileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
         "", { maxNativeZoom: 16 },
       );
+      map.on("move", requestCoverageCheck);
+      map.on("moveend", requestCoverageCheck);
+      map.on("zoomstart", () => { viewTransitioning = true; showMapLoading(); });
+      map.on("zoomend", () => { viewTransitioning = false; requestCoverageCheck(); });
 
       map.createPane("countryBorders");
       const borderPane = map.getPane("countryBorders");
@@ -185,7 +286,8 @@ export default function Home() {
       setMapReady(true);
     });
     return () => {
-      cancelled = true; mapRef.current?.remove(); mapRef.current = null; markerLayerRef.current = null;
+      cancelled = true; finishMapLoadingRef.current = () => {};
+      mapRef.current?.remove(); mapRef.current = null; markerLayerRef.current = null;
     };
   }, [places]);
 
@@ -220,12 +322,16 @@ export default function Home() {
     if (!mapReady || !map || !visiblePlaces.length) return;
     const timeout = window.setTimeout(() => {
       if (visiblePlaces.length === 1) {
-        map.setView([visiblePlaces[0].latitude, visiblePlaces[0].longitude], 14, { animate: true });
+        mapLoadingRef.current?.classList.add("visible");
+        map.setView([visiblePlaces[0].latitude, visiblePlaces[0].longitude], 14, { animate: false });
+        window.setTimeout(() => finishMapLoadingRef.current(), 1000);
         return;
       }
       const points = visiblePlaces.map((place) => [place.latitude, place.longitude] as [number, number]);
       const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
-      map.fitBounds(points, { padding: [54, 54], maxZoom, animate: true, duration: 0.45 });
+      mapLoadingRef.current?.classList.add("visible");
+      map.fitBounds(points, { padding: [54, 54], maxZoom, animate: false });
+      window.setTimeout(() => finishMapLoadingRef.current(), 1000);
     }, searchTokens.length ? 260 : 0);
     return () => window.clearTimeout(timeout);
   }, [mapReady, searchTokens.length, visiblePlaces]);
@@ -316,6 +422,9 @@ export default function Home() {
 
       <div ref={mapContainer} className="map" aria-label="Interactive map of ZedTheCyclist clips"
         data-visible-count={visiblePlaces.length} />
+      <div ref={mapLoadingRef} className="map-loading visible" role="status" aria-label="Loading map">
+        <span className="map-loading-spinner" aria-hidden="true" />
+      </div>
 
       {selected && clipId && (
         <div className="modal-backdrop">
