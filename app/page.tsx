@@ -8,7 +8,7 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
-const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_boundary_lines_land.geojson";
+const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
 
 type Place = {
   id: number; name: string; clipUrl: string; category: string;
@@ -127,12 +127,24 @@ export default function Home() {
           const edgeBuffer = bufferedLayer.getTileSize().multiplyBy(preloadTiles);
           return leaflet.bounds(visibleBounds.min.subtract(edgeBuffer), visibleBounds.max.add(edgeBuffer));
         };
+        tileLayer.on("tileerror", (event) => {
+          const tile = event.tile as HTMLImageElement;
+          const retries = Number(tile.dataset.tileRetries ?? 0);
+          if (retries >= 2) return;
+          tile.dataset.tileRetries = String(retries + 1);
+          window.setTimeout(() => {
+            const retryUrl = new URL(tile.src);
+            retryUrl.searchParams.delete("_tileRetry");
+            const subdomains = ["a", "b", "c", "d"];
+            if (subdomains.some((subdomain) => retryUrl.hostname === `${subdomain}.basemaps.cartocdn.com`)) {
+              retryUrl.hostname = `${subdomains[(retries + 1) % subdomains.length]}.basemaps.cartocdn.com`;
+            }
+            retryUrl.searchParams.set("_tileRetry", String(Date.now()));
+            tile.src = retryUrl.toString();
+          }, 160 * (retries + 1));
+        });
         tileLayer.addTo(map);
       };
-      addBufferedTileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-        "Tiles &copy; Esri", { maxNativeZoom: 16 }, 1,
-      );
       addBufferedTileLayer(
         "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -149,7 +161,7 @@ export default function Home() {
       fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
         if (!cancelled && geoJson) leaflet.geoJSON(geoJson, {
           pane: "countryBorders", interactive: false,
-          style: { color: "#86a8b3", weight: 1.65, opacity: 0.68, fillOpacity: 0 },
+          style: { color: "#86a8b3", weight: 1.5, opacity: 0.68, fillOpacity: 0 },
         }).addTo(map);
       }).catch(() => {});
 
@@ -202,6 +214,21 @@ export default function Home() {
     });
     return () => { cancelled = true; };
   }, [mapReady, visiblePlaces]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map || !visiblePlaces.length) return;
+    const timeout = window.setTimeout(() => {
+      if (visiblePlaces.length === 1) {
+        map.setView([visiblePlaces[0].latitude, visiblePlaces[0].longitude], 14, { animate: true });
+        return;
+      }
+      const points = visiblePlaces.map((place) => [place.latitude, place.longitude] as [number, number]);
+      const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
+      map.fitBounds(points, { padding: [54, 54], maxZoom, animate: true, duration: 0.45 });
+    }, searchTokens.length ? 260 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [mapReady, searchTokens.length, visiblePlaces]);
 
   useEffect(() => {
     if (!selected) return;
