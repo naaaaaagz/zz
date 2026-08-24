@@ -360,8 +360,13 @@ export default function Home() {
             const east = Math.max(...coordinates.map(([longitude]) => longitude));
             const south = Math.min(...coordinates.map(([, latitude]) => latitude));
             const north = Math.max(...coordinates.map(([, latitude]) => latitude));
-            const padding = Math.max(48, Math.min(100,
-              Math.round(Math.min(map.getContainer().clientWidth, map.getContainer().clientHeight) * 0.09)));
+            const container = map.getContainer();
+            const horizontalPadding = Math.max(44, Math.round(container.clientWidth * 0.08));
+            const verticalPadding = Math.max(44, Math.round(container.clientHeight * 0.08));
+            const padding = {
+              top: verticalPadding, bottom: verticalPadding,
+              left: horizontalPadding, right: horizontalPadding,
+            };
             if (west === east && south === north) {
               map.easeTo({ center: [west, south], zoom: 16, duration: 720 });
             } else {
