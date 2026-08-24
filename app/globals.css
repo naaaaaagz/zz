@@ -26,6 +26,7 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
 @keyframes map-loading-spin { to { transform: rotate(360deg); } }
 .resilient-map-tile { position: absolute; overflow: hidden; background: #071118; }
 .resilient-map-tile img { position: absolute; display: block; max-width: none !important; border: 0; }
+.resilient-map-tile[data-provider="esri"] img { filter: brightness(.38) contrast(1.16) saturate(.68); }
 
 .site-header {
   position: fixed; top: 22px; left: 22px; z-index: 1000;

@@ -53,6 +53,7 @@ function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string;
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapLoadingRef = useRef<HTMLDivElement>(null);
+  const startMapLoadingRef = useRef<() => void>(() => {});
   const finishMapLoadingRef = useRef<() => void>(() => {});
   const mapRef = useRef<LeafletMap | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
@@ -113,20 +114,33 @@ export default function Home() {
     import("leaflet").then((leaflet) => {
       if (cancelled || !mapContainer.current) return;
       const map = leaflet.map(mapContainer.current, {
-        center: [47.8, 13.9], zoom: 4, minZoom: 2, maxZoom: 18,
+        center: [47.8, 13.9], zoom: 4, minZoom: 2, maxZoom: 16,
         zoomControl: false, attributionControl: false, fadeAnimation: false,
+        zoomAnimation: false, markerZoomAnimation: false,
       });
       mapRef.current = map;
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
 
       let hideLoadingTimer = 0;
+      let maxLoadingTimer = 0;
       let coverageTimer = 0;
       let coverageFrame = 0;
       let viewTransitioning = false;
+      let blockingLoadActive = true;
       const showMapLoading = () => {
+        if (!blockingLoadActive) return;
         window.clearTimeout(hideLoadingTimer);
         mapLoadingRef.current?.classList.add("visible");
+      };
+      const startBlockingMapLoad = () => {
+        blockingLoadActive = true;
+        showMapLoading();
+        window.clearTimeout(maxLoadingTimer);
+        maxLoadingTimer = window.setTimeout(() => {
+          blockingLoadActive = false;
+          mapLoadingRef.current?.classList.remove("visible");
+        }, 4500);
       };
       const visibleBaseTilesReady = () => {
         const pixelBounds = map.getPixelBounds();
@@ -153,32 +167,43 @@ export default function Home() {
       const verifyMapCoverage = () => {
         window.clearTimeout(coverageTimer);
         if (viewTransitioning || !visibleBaseTilesReady()) {
-          showMapLoading();
-          coverageTimer = window.setTimeout(verifyMapCoverage, 80);
+          if (blockingLoadActive) {
+            showMapLoading();
+            coverageTimer = window.setTimeout(verifyMapCoverage, 80);
+          }
           return;
         }
+        if (!blockingLoadActive) return;
         window.clearTimeout(hideLoadingTimer);
         hideLoadingTimer = window.setTimeout(() => {
           if (viewTransitioning || !visibleBaseTilesReady()) verifyMapCoverage();
-          else mapLoadingRef.current?.classList.remove("visible");
+          else {
+            blockingLoadActive = false;
+            window.clearTimeout(maxLoadingTimer);
+            mapLoadingRef.current?.classList.remove("visible");
+          }
         }, 80);
       };
       const requestCoverageCheck = () => {
         window.cancelAnimationFrame(coverageFrame);
         coverageFrame = window.requestAnimationFrame(verifyMapCoverage);
       };
+      startMapLoadingRef.current = startBlockingMapLoad;
       finishMapLoadingRef.current = verifyMapCoverage;
+      startBlockingMapLoad();
+
+      const successfulTileUrls = new Map<string, string>();
 
       const addBufferedTileLayer = (
         url: string, attribution = "",
         options: { subdomains?: string; maxNativeZoom?: number } = {}, resilient = false,
       ) => {
-        const tileLayer = leaflet.tileLayer(url, { maxZoom: 20, keepBuffer: 4, updateWhenIdle: false, updateInterval: 120, attribution, ...options });
+        const tileLayer = leaflet.tileLayer(url, { maxZoom: 16, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: false, updateInterval: 120, attribution, ...options });
         const bufferedLayer = tileLayer as typeof tileLayer & { _getTiledPixelBounds(center: LatLng): Bounds };
         const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
         bufferedLayer._getTiledPixelBounds = (center) => {
           const visibleBounds = getVisiblePixelBounds(center);
-          const edgeBuffer = bufferedLayer.getTileSize();
+          const edgeBuffer = map.getZoom() <= 12 ? bufferedLayer.getTileSize() : leaflet.point(0, 0);
           return leaflet.bounds(visibleBounds.min.subtract(edgeBuffer), visibleBounds.max.add(edgeBuffer));
         };
 
@@ -195,19 +220,24 @@ export default function Home() {
             tile.dataset.tileX = String(coords.x);
             tile.dataset.tileY = String(coords.y);
             tile.dataset.tileZ = String(coords.z);
+            tile.dataset.provider = coords.z > 12 ? "esri" : "carto";
             const subdomains = ["a", "b", "c", "d"];
             const retina = leaflet.Browser.retina ? "@2x" : "";
             let finished = false;
 
             const tileUrl = (x: number, y: number, z: number, attempt: number) => {
+              if (z > 12) {
+                return `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`;
+              }
               const subdomain = subdomains[Math.abs(x + y + attempt) % subdomains.length];
-              const resolved = url.replace("{s}", subdomain).replace("{z}", String(z))
+              return url.replace("{s}", subdomain).replace("{z}", String(z))
                 .replace("{x}", String(x)).replace("{y}", String(y)).replace("{r}", retina);
-              return attempt ? `${resolved}?_tileRetry=${Date.now()}-${attempt}` : resolved;
             };
-            const complete = (image: HTMLImageElement, fallbackLevel: number) => {
-              if (finished) return;
+            const tileKey = (x: number, y: number, z: number) => `${z > 12 ? "esri" : "carto"}:${z}:${x}:${y}`;
+            const complete = (image: HTMLImageElement, fallbackLevel: number, x: number, y: number, z: number) => {
+              if (finished || tile.dataset.cancelled === "true") return;
               finished = true;
+              successfulTileUrls.set(tileKey(x, y, z), image.src);
               const factor = 2 ** fallbackLevel;
               const offsetX = ((coords.x % factor) + factor) % factor;
               const offsetY = ((coords.y % factor) + factor) % factor;
@@ -218,6 +248,7 @@ export default function Home() {
               done(undefined, tile);
             };
             const load = (fallbackLevel: number, attempt = 0) => {
+              if (finished || tile.dataset.cancelled === "true") return;
               const factor = 2 ** fallbackLevel;
               const x = Math.floor(coords.x / factor);
               const y = Math.floor(coords.y / factor);
@@ -225,26 +256,35 @@ export default function Home() {
               const image = document.createElement("img");
               image.alt = "";
               image.decoding = "async";
-              image.onload = () => complete(image, fallbackLevel);
+              image.onload = () => complete(image, fallbackLevel, x, y, z);
               image.onerror = () => {
+                if (tile.dataset.cancelled === "true") return;
                 if (attempt < 2) load(fallbackLevel, attempt + 1);
-                else if (z > 0) load(fallbackLevel + 1);
-                else if (!finished) done(new Error("Map tile unavailable"), tile);
+                else if (fallbackLevel < 3 && z > 0) load(fallbackLevel + 1);
+                else if (!finished) { finished = true; done(new Error("Map tile unavailable"), tile); }
               };
               tile.replaceChildren(image);
-              image.src = tileUrl(x, y, z, attempt);
+              image.src = successfulTileUrls.get(tileKey(x, y, z)) ?? tileUrl(x, y, z, attempt);
             };
             load(0);
             return tile;
           };
         }
 
-        if (resilient) tileLayer.on("tileload tileerror", requestCoverageCheck);
+        if (resilient) {
+          tileLayer.on("tileload tileerror", requestCoverageCheck);
+          tileLayer.on("tileunload", (event) => {
+            const tile = event.tile as HTMLElement;
+            tile.dataset.cancelled = "true";
+            const image = tile.querySelector("img");
+            if (image) { image.onload = null; image.onerror = null; image.removeAttribute("src"); }
+          });
+        }
         tileLayer.addTo(map);
       };
       addBufferedTileLayer(
         "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> &copy; Esri',
         { subdomains: "abcd" }, true,
       );
       addBufferedTileLayer(
@@ -253,7 +293,7 @@ export default function Home() {
       );
       map.on("move", requestCoverageCheck);
       map.on("moveend", requestCoverageCheck);
-      map.on("zoomstart", () => { viewTransitioning = true; showMapLoading(); });
+      map.on("zoomstart", () => { viewTransitioning = true; });
       map.on("zoomend", () => { viewTransitioning = false; requestCoverageCheck(); });
 
       map.createPane("countryBorders");
@@ -286,7 +326,7 @@ export default function Home() {
       setMapReady(true);
     });
     return () => {
-      cancelled = true; finishMapLoadingRef.current = () => {};
+      cancelled = true; startMapLoadingRef.current = () => {}; finishMapLoadingRef.current = () => {};
       mapRef.current?.remove(); mapRef.current = null; markerLayerRef.current = null;
     };
   }, [places]);
@@ -322,14 +362,14 @@ export default function Home() {
     if (!mapReady || !map || !visiblePlaces.length) return;
     const timeout = window.setTimeout(() => {
       if (visiblePlaces.length === 1) {
-        mapLoadingRef.current?.classList.add("visible");
+        startMapLoadingRef.current();
         map.setView([visiblePlaces[0].latitude, visiblePlaces[0].longitude], 14, { animate: false });
         window.setTimeout(() => finishMapLoadingRef.current(), 1000);
         return;
       }
       const points = visiblePlaces.map((place) => [place.latitude, place.longitude] as [number, number]);
       const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
-      mapLoadingRef.current?.classList.add("visible");
+      startMapLoadingRef.current();
       map.fitBounds(points, { padding: [54, 54], maxZoom, animate: false });
       window.setTimeout(() => finishMapLoadingRef.current(), 1000);
     }, searchTokens.length ? 260 : 0);
