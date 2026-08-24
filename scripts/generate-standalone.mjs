@@ -74,7 +74,15 @@ const html = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071118">
+  <meta name="msapplication-TileColor" content="#071118">
+  <meta name="msapplication-config" content="./browserconfig.xml">
   <title>ZedTheCyclist — Zarándoklatai</title>
+  <link rel="icon" href="./favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="./favicon-48x48.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+  <link rel="manifest" href="./site.webmanifest">
   <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="stylesheet" href="./maplibre-gl.css">
@@ -213,4 +221,9 @@ copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl.mjs", import.
 copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs", import.meta.url), new URL("../maplibre-gl-shared.mjs", import.meta.url));
 copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url), new URL("../maplibre-gl-worker.mjs", import.meta.url));
 copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl.css", import.meta.url), new URL("../maplibre-gl.css", import.meta.url));
+for (const asset of [
+  "favicon.ico", "favicon-16x16.png", "favicon-32x32.png", "favicon-48x48.png",
+  "apple-touch-icon.png", "android-chrome-192x192.png", "android-chrome-512x512.png",
+  "mstile-150x150.png", "site.webmanifest", "browserconfig.xml",
+]) copyFileSync(new URL(`../public/${asset}`, import.meta.url), new URL(`../${asset}`, import.meta.url));
 console.log(`Generated index.html with ${places.length} locations, ${topCount} TOP clips and ${countries.length} countries.`);
