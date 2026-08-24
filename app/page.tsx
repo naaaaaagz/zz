@@ -104,6 +104,12 @@ type Place = {
   twitchCategory: string; twitchKeywords: string;
 };
 
+type SearchSuggestion = {
+  label: string; normalized: string; kind: string; count: number; topHits: number; priority: number;
+};
+
+type ConnectorLine = { left: number; top: number; width: number; angle: number };
+
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
 function countryNameHu(country: string) { return COUNTRY_NAMES_HU[country] ?? country; }
@@ -116,6 +122,58 @@ function countValues(values: string[]) {
 function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("hu-HU")
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function buildSearchSuggestions(places: Place[]) {
+  const suggestions = new Map<string, SearchSuggestion>();
+  for (const place of places) {
+    const seen = new Set<string>();
+    const candidates = [
+      { label: place.category, kind: "Kategória", priority: 5 },
+      { label: countryNameHu(place.country), kind: "Ország", priority: 5 },
+      { label: place.name, kind: "Klip", priority: 4 },
+      { label: place.twitchTitle, kind: "Twitch-cím", priority: 3 },
+      ...[place.sourceKeywords, place.keywords].flatMap((value) => value.split(","))
+        .map((label) => ({ label: label.trim(), kind: "Kulcsszó", priority: 2 })),
+      ...place.twitchKeywords.split(",")
+        .map((label) => ({ label: label.trim(), kind: "Twitch-kulcsszó", priority: 1 })),
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeSearch(candidate.label);
+      if (normalized.length < 2 || seen.has(normalized)) continue;
+      seen.add(normalized);
+      const current = suggestions.get(normalized);
+      if (current) {
+        current.count += 1;
+        if (place.top) current.topHits += 1;
+        if (candidate.priority > current.priority) {
+          current.label = candidate.label;
+          current.kind = candidate.kind;
+          current.priority = candidate.priority;
+        }
+      } else {
+        suggestions.set(normalized, {
+          ...candidate, normalized, count: 1, topHits: place.top ? 1 : 0,
+        });
+      }
+    }
+  }
+  return [...suggestions.values()];
+}
+
+function rankSearchSuggestions(suggestions: SearchSuggestion[], query: string) {
+  const normalizedQuery = normalizeSearch(query);
+  if (normalizedQuery.length < 2) return [];
+  return suggestions.filter((suggestion) => suggestion.normalized.includes(normalizedQuery))
+    .map((suggestion) => {
+      const exact = suggestion.normalized === normalizedQuery;
+      const prefix = suggestion.normalized.startsWith(normalizedQuery);
+      const wordPrefix = suggestion.normalized.split(" ").some((word) => word.startsWith(normalizedQuery));
+      const matchScore = exact ? 1_000_000 : prefix ? 500_000 : wordPrefix ? 350_000 : 200_000;
+      return { suggestion, score: matchScore + suggestion.count * 1_000 + suggestion.topHits * 100 + suggestion.priority };
+    })
+    .sort((a, b) => b.score - a.score || a.suggestion.label.localeCompare(b.suggestion.label, "hu"))
+    .slice(0, 8).map(({ suggestion }) => suggestion);
 }
 
 function placesToGeoJson(places: Place[]) {
@@ -197,6 +255,10 @@ export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapLoadingRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const searchOriginRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const listPanelRef = useRef<HTMLElement>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const listRowRefs = useRef(new Map<number, HTMLButtonElement>());
   const [places, setPlaces] = useState<Place[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [selected, setSelected] = useState<Place | null>(null);
@@ -205,6 +267,11 @@ export default function Home() {
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [topOnly, setTopOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [suggestionCursor, setSuggestionCursor] = useState(0);
+  const [listOpen, setListOpen] = useState(false);
+  const [activeListPlace, setActiveListPlace] = useState<Place | null>(null);
+  const [connectorLine, setConnectorLine] = useState<ConnectorLine | null>(null);
   const [online, setOnline] = useState(false);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
@@ -214,16 +281,20 @@ export default function Home() {
   const countryCounts = useMemo(() => countValues(places.map((place) => place.country)), [places]);
   const topCount = useMemo(() => places.filter((place) => place.top).length, [places]);
   const searchTokens = useMemo(() => normalizeSearch(searchQuery).split(/\s+/).filter(Boolean), [searchQuery]);
+  const suggestionIndex = useMemo(() => buildSearchSuggestions(places), [places]);
+  const searchSuggestions = useMemo(() => rankSearchSuggestions(suggestionIndex, searchQuery), [suggestionIndex, searchQuery]);
   const visiblePlaces = useMemo(() => places.filter((place) => {
     if (!selectedCategories.includes(place.category) || !selectedCountries.includes(place.country)) return false;
     if (topOnly && !place.top) return false;
     if (!searchTokens.length) return true;
     const haystack = normalizeSearch([
       place.keywords, place.sourceKeywords, place.category, place.name, place.twitchTitle,
-      place.twitchCategory, place.twitchKeywords,
+      place.twitchCategory, place.twitchKeywords, place.country, countryNameHu(place.country),
     ].join(" "));
     return searchTokens.every((token) => haystack.includes(token));
   }), [places, searchTokens, selectedCategories, selectedCountries, topOnly]);
+  const sortedVisiblePlaces = useMemo(() => [...visiblePlaces].sort((a, b) =>
+    (b.clipDate || "").localeCompare(a.clipDate || "") || b.id - a.id), [visiblePlaces]);
 
   useEffect(() => {
     let active = true;
@@ -307,7 +378,7 @@ export default function Home() {
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
         map.addSource("clips", {
-          type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 16, clusterRadius: 32,
+          type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 14, clusterRadius: 32,
         });
         map.addLayer({
           id: "clip-clusters", type: "symbol", source: "clips", filter: ["has", "point_count"],
@@ -403,7 +474,13 @@ export default function Home() {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!mapReady || !map || !visiblePlaces.length) return;
+    if (!mapReady || !map) return;
+    if (!visiblePlaces.length) {
+      map.stop();
+      const origin = searchTokens.length ? searchOriginRef.current : null;
+      if (origin) map.easeTo({ center: origin.center, zoom: origin.zoom, duration: 350 });
+      return;
+    }
     const timeout = window.setTimeout(() => {
       if (visiblePlaces.length === 1) {
         map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, duration: 650 });
@@ -420,6 +497,55 @@ export default function Home() {
   }, [mapReady, searchTokens.length, visiblePlaces]);
 
   useEffect(() => {
+    if (activeListPlace && !visiblePlaces.some((place) => place.id === activeListPlace.id)) {
+      setActiveListPlace(null);
+      setConnectorLine(null);
+    }
+  }, [activeListPlace, visiblePlaces]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const panel = listPanelRef.current;
+    const scroll = listScrollRef.current;
+    if (!mapReady || !map || !listOpen || !activeListPlace || !panel || !scroll) {
+      setConnectorLine(null);
+      return;
+    }
+    let animationFrame = 0;
+    const updateConnector = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const row = listRowRefs.current.get(activeListPlace.id);
+        if (!row) return setConnectorLine(null);
+        const rowRect = row.getBoundingClientRect();
+        const scrollRect = scroll.getBoundingClientRect();
+        if (rowRect.bottom < scrollRect.top || rowRect.top > scrollRect.bottom) return setConnectorLine(null);
+        const mapRect = map.getContainer().getBoundingClientRect();
+        const projected = map.project([activeListPlace.longitude, activeListPlace.latitude]);
+        const left = rowRect.right - 3;
+        const top = rowRect.top + rowRect.height / 2;
+        const endX = mapRect.left + projected.x;
+        const endY = mapRect.top + projected.y;
+        const deltaX = endX - left;
+        const deltaY = endY - top;
+        setConnectorLine({ left, top, width: Math.hypot(deltaX, deltaY), angle: Math.atan2(deltaY, deltaX) * 180 / Math.PI });
+      });
+    };
+    updateConnector();
+    map.on("move", updateConnector);
+    map.on("resize", updateConnector);
+    scroll.addEventListener("scroll", updateConnector, { passive: true });
+    window.addEventListener("resize", updateConnector);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      map.off("move", updateConnector);
+      map.off("resize", updateConnector);
+      scroll.removeEventListener("scroll", updateConnector);
+      window.removeEventListener("resize", updateConnector);
+    };
+  }, [activeListPlace, listOpen, mapReady]);
+
+  useEffect(() => {
     if (!selected) return;
     const close = (event: KeyboardEvent) => event.key === "Escape" && setSelected(null);
     document.addEventListener("keydown", close); document.body.classList.add("modal-open");
@@ -428,6 +554,35 @@ export default function Home() {
 
   const toggleFilter = (value: string, current: string[], update: (values: string[]) => void) =>
     update(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+
+  const updateSearchQuery = (nextQuery: string) => {
+    const map = mapRef.current;
+    const previous = normalizeSearch(searchQuery);
+    const next = normalizeSearch(nextQuery);
+    if (!previous && next && map) {
+      const center = map.getCenter();
+      searchOriginRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
+    } else if (!next) {
+      searchOriginRef.current = null;
+    }
+    setSuggestionCursor(0);
+    setSearchQuery(nextQuery);
+  };
+
+  const chooseSuggestion = (suggestion: SearchSuggestion) => {
+    updateSearchQuery(suggestion.label);
+    setSearchFocused(false);
+  };
+
+  const focusListPlace = (place: Place) => {
+    if (!place.clipUrl) return;
+    setActiveListPlace(place);
+    const map = mapRef.current;
+    if (!map) return;
+    map.stop();
+    const panelWidth = listPanelRef.current?.getBoundingClientRect().width ?? 0;
+    map.easeTo({ center: [place.longitude, place.latitude], zoom: 15, offset: [panelWidth / 2, 0], duration: 720 });
+  };
   const parent = typeof window === "undefined" ? "localhost" : window.location.hostname;
   const clipId = selected ? getClipId(selected.clipUrl) : "";
 
@@ -449,9 +604,32 @@ export default function Home() {
       <div className="filter-area">
         <div className="search-box">
           <span className="search-icon" aria-hidden="true" />
-          <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Balaton, ijesztés, macska, ..." aria-label="Keresés a klipek között" />
-          {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")} aria-label="Keresés törlése">×</button>}
+          <input type="search" value={searchQuery} onChange={(event) => updateSearchQuery(event.target.value)}
+            onFocus={() => setSearchFocused(true)} onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" && searchSuggestions.length) {
+                event.preventDefault(); setSuggestionCursor((cursor) => (cursor + 1) % searchSuggestions.length);
+              } else if (event.key === "ArrowUp" && searchSuggestions.length) {
+                event.preventDefault(); setSuggestionCursor((cursor) => (cursor - 1 + searchSuggestions.length) % searchSuggestions.length);
+              } else if (event.key === "Enter" && searchSuggestions[suggestionCursor]) {
+                event.preventDefault(); chooseSuggestion(searchSuggestions[suggestionCursor]);
+              } else if (event.key === "Escape") setSearchFocused(false);
+            }}
+            placeholder="Balaton, jumpscare, macska, ..." aria-label="Keresés a klipek között"
+            aria-autocomplete="list" aria-controls="search-suggestions" />
+          {searchQuery && <button className="search-clear" onClick={() => updateSearchQuery("")} aria-label="Keresés törlése">×</button>}
+          {searchFocused && normalizeSearch(searchQuery).length >= 2 && (
+            <div className="search-suggestions" id="search-suggestions" role="listbox">
+              {searchSuggestions.length ? searchSuggestions.map((suggestion, index) => (
+                <button key={suggestion.normalized} type="button" role="option" aria-selected={index === suggestionCursor}
+                  className={index === suggestionCursor ? "active" : ""}
+                  onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(suggestion)}>
+                  <span className="suggestion-label">{suggestion.label}</span>
+                  <span className="suggestion-meta">{suggestion.kind} · {suggestion.count} találat</span>
+                </button>
+              )) : <p className="search-empty">Nincs találat</p>}
+            </div>
+          )}
         </div>
         <button className="filter-button" onClick={() => setFiltersOpen((open) => !open)}
           aria-expanded={filtersOpen} aria-controls="filters-panel">
@@ -502,6 +680,32 @@ export default function Home() {
           </>
         )}
       </div>
+
+      <div className={`clip-list-shell ${listOpen ? "open" : ""}`}>
+        <aside className="clip-list-panel" ref={listPanelRef} aria-label="Kliplista">
+          <div className="clip-list-heading"><h2>Lista</h2><small>{sortedVisiblePlaces.length} klip</small></div>
+          <div className="clip-list-scroll" ref={listScrollRef}>
+            {sortedVisiblePlaces.length ? sortedVisiblePlaces.map((place) => (
+              <button key={place.id} type="button" disabled={!place.clipUrl}
+                ref={(element) => { if (element) listRowRefs.current.set(place.id, element); else listRowRefs.current.delete(place.id); }}
+                className={`clip-list-row ${activeListPlace?.id === place.id ? "active" : ""}`}
+                onClick={() => focusListPlace(place)}>
+                {place.top && <span className="list-top-badge">TOP</span>}
+                <span className="clip-list-title">{place.name || "Névtelen klip"}</span>
+                {place.clipDate && <time dateTime={place.clipDate}>{place.clipDate.replaceAll("-", "/")}</time>}
+              </button>
+            )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
+          </div>
+        </aside>
+        <button className="clip-list-toggle" type="button" onClick={() => setListOpen((open) => !open)}
+          aria-expanded={listOpen} aria-label={listOpen ? "Lista bezárása" : "Lista megnyitása"}>
+          <span aria-hidden="true">›</span><b>Lista</b>
+        </button>
+      </div>
+      {connectorLine && <div className="clip-connector" aria-hidden="true" style={{
+        left: connectorLine.left, top: connectorLine.top, width: connectorLine.width,
+        transform: `rotate(${connectorLine.angle}deg)`,
+      }} />}
 
       <div ref={mapContainer} className="map" aria-label="ZedTheCyclist klipjeinek interaktív térképe"
         data-visible-count={visiblePlaces.length} />
