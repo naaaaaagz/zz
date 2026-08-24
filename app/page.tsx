@@ -107,6 +107,10 @@ type Place = {
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
 function countryNameHu(country: string) { return COUNTRY_NAMES_HU[country] ?? country; }
+function detailedClusterZoom(pointCount: number, currentZoom: number, expansionZoom: number) {
+  const detailZoom = pointCount > 100 ? 11.5 : pointCount > 20 ? 12.5 : pointCount > 5 ? 13.5 : 15;
+  return Math.min(16, Math.max(expansionZoom + 2, currentZoom + 3.5, detailZoom));
+}
 function countValues(values: string[]) {
   return values.reduce<Record<string, number>>((counts, value) => {
     if (value) counts[value] = (counts[value] ?? 0) + 1;
@@ -351,8 +355,11 @@ export default function Home() {
           const feature = event.features?.[0];
           if (!feature || feature.geometry.type !== "Point") return;
           const clusterId = Number(feature.properties?.cluster_id);
+          const pointCount = Number(feature.properties?.point_count ?? 2);
           (map.getSource("clips") as GeoJSONSource).getClusterExpansionZoom(clusterId).then((zoom) => {
-            map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom, duration: 520 });
+            const targetZoom = detailedClusterZoom(pointCount, map.getZoom(), zoom);
+            const duration = Math.min(900, 480 + Math.abs(targetZoom - map.getZoom()) * 55);
+            map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: targetZoom, duration });
           }).catch(() => {});
         });
 

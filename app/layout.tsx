@@ -6,7 +6,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ZedTheCyclist — Zarándoklatai",
+  title: "ZedTheCyclist clips",
   description: "Fedezd fel ZedTheCyclist utazásainak több mint 400 emlékezetes pillanatát.",
   manifest: "/site.webmanifest",
   icons: {

@@ -76,7 +76,7 @@ const html = `<!doctype html>
   <meta name="theme-color" content="#071118">
   <meta name="msapplication-TileColor" content="#071118">
   <meta name="msapplication-config" content="./browserconfig.xml">
-  <title>ZedTheCyclist — Zarándoklatai</title>
+  <title>ZedTheCyclist clips</title>
   <link rel="icon" href="./favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
@@ -188,7 +188,7 @@ const html = `<!doctype html>
       function bindPointLayer(layerId){map.on("mouseenter",layerId,event=>{map.getCanvas().style.cursor="pointer";const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.name||"Névtelen klip").addTo(map)});map.on("mouseleave",layerId,()=>{map.getCanvas().style.cursor="";popup.remove()});map.on("click",layerId,event=>{const id=Number(event.features&&event.features[0]&&event.features[0].properties.id),place=places.find(item=>item.id===id);if(place&&place.clipUrl)openClip(place)})}
       bindPointLayer("clip-points");bindPointLayer("top-points");
       map.on("mouseenter","clip-clusters",()=>{map.getCanvas().style.cursor="pointer"});map.on("mouseleave","clip-clusters",()=>{map.getCanvas().style.cursor=""});
-      map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;map.getSource("clips").getClusterExpansionZoom(Number(feature.properties.cluster_id)).then(zoom=>map.easeTo({center:feature.geometry.coordinates,zoom,duration:520})).catch(()=>{})});
+      map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;const pointCount=Number(feature.properties.point_count||2);map.getSource("clips").getClusterExpansionZoom(Number(feature.properties.cluster_id)).then(expansionZoom=>{const detailZoom=pointCount>100?11.5:pointCount>20?12.5:pointCount>5?13.5:15,targetZoom=Math.min(16,Math.max(expansionZoom+2,map.getZoom()+3.5,detailZoom)),duration=Math.min(900,480+Math.abs(targetZoom-map.getZoom())*55);map.easeTo({center:feature.geometry.coordinates,zoom:targetZoom,duration})}).catch(()=>{})});
       fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(!geoJson||map.getSource("country-borders"))return;map.addSource("country-borders",{type:"geojson",data:geoJson});map.addLayer({id:"country-borders",type:"line",source:"country-borders",paint:{"line-color":"#86a8b3","line-width":["interpolate",["linear"],["zoom"],2,1.1,8,1.6,14,2],"line-opacity":.68}},"clip-clusters")}).catch(()=>{});
       mapReady=true;renderMarkers(true);wakeMap();
     });
