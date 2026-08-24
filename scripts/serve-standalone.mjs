@@ -9,6 +9,7 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
 };
@@ -40,4 +41,3 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`ZedTheCyclist map is running at http://localhost:${port}`);
   console.log("Keep this window open while using the map. Press Ctrl+C to stop.");
 });
-

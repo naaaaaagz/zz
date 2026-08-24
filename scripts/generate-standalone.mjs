@@ -1,9 +1,28 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 
 const SOURCE = "1ZmgPHO2blY5aPFv97Ra_8kO2MexeO_SScGGjbS134ZQ";
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
 const LIVE_URL = "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live";
-const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const MAP_STYLE = {
+  version: 8,
+  sources: {
+    "dark-base": {
+      type: "raster", tileSize: 256, maxzoom: 20,
+      tiles: ["a", "b", "c", "d"].map((subdomain) => `https://${subdomain}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png`),
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    },
+    "english-labels": {
+      type: "raster", tileSize: 256, maxzoom: 16,
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"],
+      attribution: "&copy; Esri",
+    },
+  },
+  layers: [
+    { id: "background", type: "background", paint: { "background-color": "#071118" } },
+    { id: "dark-base", type: "raster", source: "dark-base", paint: { "raster-fade-duration": 120 } },
+    { id: "english-labels", type: "raster", source: "english-labels", paint: { "raster-fade-duration": 120, "raster-opacity": 0.94 } },
+  ],
+};
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
 const twitchMetadata = JSON.parse(readFileSync(new URL("../data/twitch-meta.json", import.meta.url), "utf8"));
 const appCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
@@ -61,7 +80,7 @@ const html = `<!doctype html>
   <meta name="theme-color" content="#071118">
   <title>ZedTheCyclist — Zarándoklatai</title>
   <link rel="preconnect" href="https://tiles.basemaps.cartocdn.com">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.5.0/dist/maplibre-gl.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="./maplibre-gl.css">
   <style>${appCss}</style>
   <style>
     .filters-panel,.filter-dismiss,.modal-backdrop{display:none}
@@ -105,7 +124,7 @@ const html = `<!doctype html>
     </div>
 
     <div id="map" class="map" aria-label="Interactive map of ZedTheCyclist clips"></div>
-    <div class="map-loading visible" id="map-loading" role="status" aria-label="Loading map"><span class="map-loading-spinner" aria-hidden="true"></span></div>
+    <div class="map-loading" id="map-loading" role="status" aria-label="Loading map"><span class="map-loading-spinner" aria-hidden="true"></span></div>
 
     <div class="modal-backdrop" id="modal-backdrop" aria-hidden="true">
       <button class="modal-dismiss" id="modal-dismiss" aria-label="Close clip"></button>
@@ -119,8 +138,8 @@ const html = `<!doctype html>
     </div>
   </main>
 
-  <script src="https://unpkg.com/maplibre-gl@6.5.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
-  <script>
+  <script type="module">
+    import * as maplibregl from "./maplibre-gl.mjs";
     const places=${data};
     const categories=${JSON.stringify(categories)},countries=${JSON.stringify(countries)};
     const selectedCategories=new Set(categories),selectedCountries=new Set(countries);
@@ -131,24 +150,20 @@ const html = `<!doctype html>
 
     fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
 
-    const mapLoading=document.getElementById("map-loading");
-    const map=new maplibregl.Map({container:"map",style:"${MAP_STYLE_URL}",center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0});
+    const map=new maplibregl.Map({container:"map",style:${JSON.stringify(MAP_STYLE)},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0});
     map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
     map.addControl(new maplibregl.AttributionControl({compact:true}),"bottom-left");
-    const loadingTimeout=setTimeout(()=>mapLoading.classList.remove("visible"),5000);
-    map.once("idle",()=>{clearTimeout(loadingTimeout);mapLoading.classList.remove("visible")});
 
     function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Untitled clip",linked:Boolean(place.clipUrl),top:place.top}}))}}
     function addTopStar(){const size=40,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return;const outer=17,inner=7.4,center=size/2;context.beginPath();for(let index=0;index<10;index+=1){const radius=index%2===0?outer:inner,angle=-Math.PI/2+index*Math.PI/5,x=center+Math.cos(angle)*radius,y=center+Math.sin(angle)*radius;index===0?context.moveTo(x,y):context.lineTo(x,y)}context.closePath();const gradient=context.createLinearGradient(8,6,31,34);gradient.addColorStop(0,"#f1a4ff");gradient.addColorStop(.58,"#a64cff");gradient.addColorStop(1,"#7047e8");context.fillStyle=gradient;context.fill();context.lineWidth=2.5;context.strokeStyle="#07141c";context.stroke();map.addImage("top-star",context.getImageData(0,0,size,size),{pixelRatio:2})}
+    function addClusterIcons(){for(let count=2;count<=places.length;count+=1){const displaySize=count>=100?42:count>=10?36:31,scale=2,size=displaySize*scale,center=size/2,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)continue;const gradient=context.createRadialGradient(center*.7,center*.63,1,center,center,center);gradient.addColorStop(0,"#7952b5");gradient.addColorStop(1,"#241c3c");context.beginPath();context.arc(center,center,center-2,0,Math.PI*2);context.fillStyle=gradient;context.fill();context.lineWidth=4;context.strokeStyle="#dc97ff";context.stroke();context.fillStyle="#fff";context.font="850 22px Arial, Helvetica, sans-serif";context.textAlign="center";context.textBaseline="middle";context.fillText(String(count),center,center+.5);map.addImage("cluster-"+count,context.getImageData(0,0,size,size),{pixelRatio:2})}}
 
     let mapReady=false;
     map.on("load",()=>{
-      for(const layer of map.getStyle().layers||[]){const textField=layer.type==="symbol"&&layer.layout&&layer.layout["text-field"];if(typeof textField==="string"&&textField.includes("{name}"))map.setLayoutProperty(layer.id,"text-field",["coalesce",["get","name_en"],["get","name"]])}
+      addClusterIcons();addTopStar();
       map.addSource("clips",{type:"geojson",data:placesToGeoJson(places),cluster:true,clusterMaxZoom:16,clusterRadius:32});
-      map.addLayer({id:"clip-clusters",type:"circle",source:"clips",filter:["has","point_count"],paint:{"circle-color":"#2b203f","circle-radius":["step",["get","point_count"],16,10,18,100,21],"circle-stroke-color":"#dc97ff","circle-stroke-width":2,"circle-blur":.03,"circle-opacity":.96}});
-      map.addLayer({id:"clip-cluster-count",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"text-field":["get","point_count_abbreviated"],"text-size":11,"text-allow-overlap":true},paint:{"text-color":"#fff","text-halo-color":"rgba(7,17,24,.55)","text-halo-width":.6}});
+      map.addLayer({id:"clip-clusters",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"icon-image":["concat","cluster-",["to-string",["get","point_count"]]],"icon-allow-overlap":true}});
       map.addLayer({id:"clip-points",type:"circle",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],false]],paint:{"circle-radius":["case",["get","linked"],5,4],"circle-color":["case",["get","linked"],"#bd5cff","#7c9299"],"circle-stroke-color":"#07141c","circle-stroke-width":1.5}});
-      addTopStar();
       map.addLayer({id:"top-points",type:"symbol",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],true]],layout:{"icon-image":"top-star","icon-size":1,"icon-allow-overlap":true}});
       const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:"clip-map-tooltip"});
       function bindPointLayer(layerId){map.on("mouseenter",layerId,event=>{map.getCanvas().style.cursor="pointer";const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.name||"Untitled clip").addTo(map)});map.on("mouseleave",layerId,()=>{map.getCanvas().style.cursor="";popup.remove()});map.on("click",layerId,event=>{const id=Number(event.features&&event.features[0]&&event.features[0].properties.id),place=places.find(item=>item.id===id);if(place&&place.clipUrl)openClip(place)})}
@@ -164,7 +179,7 @@ const html = `<!doctype html>
     function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
     let fitTimer=0;
     function fitVisible(visible,tokens,initial=false){clearTimeout(fitTimer);if(!visible.length)return;fitTimer=setTimeout(()=>{if(visible.length===1)map.easeTo({center:[visible[0].longitude,visible[0].latitude],zoom:14,duration:initial?0:650});else{const west=Math.min(...visible.map(place=>place.longitude)),east=Math.max(...visible.map(place=>place.longitude)),south=Math.min(...visible.map(place=>place.latitude)),north=Math.max(...visible.map(place=>place.latitude)),maxZoom=visible.length<=4?13:visible.length<=20?11:7;map.fitBounds([[west,south],[east,north]],{padding:54,maxZoom,duration:initial?0:650})}},initial?0:tokens.length?260:0)}
-    function renderMarkers(initial=false){const tokens=normalizeSearch(searchQuery).split(/\\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords].join(" "));return tokens.every(token=>haystack.includes(token))});document.getElementById("map").dataset.visibleCount=String(visible.length);if(mapReady)map.getSource("clips").setData(placesToGeoJson(visible));fitVisible(visible,tokens,initial)}
+    function renderMarkers(initial=false){const tokens=normalizeSearch(searchQuery).split(/\\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords].join(" "));return tokens.every(token=>haystack.includes(token))});document.getElementById("map").dataset.visibleCount=String(visible.length);if(mapReady&&!initial)map.getSource("clips").setData(placesToGeoJson(visible));fitVisible(visible,tokens,initial)}
 
     const filterButton=document.getElementById("filter-button"),filtersPanel=document.getElementById("filters-panel"),filterDismiss=document.getElementById("filter-dismiss");
     function setFiltersOpen(open){filterButton.setAttribute("aria-expanded",String(open));filtersPanel.classList.toggle("open",open);filterDismiss.classList.toggle("open",open)}
@@ -183,4 +198,8 @@ const html = `<!doctype html>
 </html>`;
 
 writeFileSync(new URL("../index.html", import.meta.url), html, "utf8");
+copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl.mjs", import.meta.url), new URL("../maplibre-gl.mjs", import.meta.url));
+copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs", import.meta.url), new URL("../maplibre-gl-shared.mjs", import.meta.url));
+copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url), new URL("../maplibre-gl-worker.mjs", import.meta.url));
+copyFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl.css", import.meta.url), new URL("../maplibre-gl.css", import.meta.url));
 console.log(`Generated index.html with ${places.length} locations, ${topCount} TOP clips and ${countries.length} countries.`);

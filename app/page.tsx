@@ -1,11 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
-const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const MAP_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    "dark-base": {
+      type: "raster", tileSize: 256, maxzoom: 20,
+      tiles: [
+        "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+        "https://d.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+      ],
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    },
+    "english-labels": {
+      type: "raster", tileSize: 256, maxzoom: 16,
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"],
+      attribution: "&copy; Esri",
+    },
+  },
+  layers: [
+    { id: "background", type: "background", paint: { "background-color": "#071118" } },
+    { id: "dark-base", type: "raster", source: "dark-base", paint: { "raster-fade-duration": 120 } },
+    { id: "english-labels", type: "raster", source: "english-labels", paint: { "raster-fade-duration": 120, "raster-opacity": 0.94 } },
+  ],
+};
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
 
 type Place = {
@@ -62,6 +86,24 @@ function makeTopStar() {
   gradient.addColorStop(0, "#f1a4ff"); gradient.addColorStop(0.58, "#a64cff"); gradient.addColorStop(1, "#7047e8");
   context.fillStyle = gradient; context.fill();
   context.lineWidth = 2.5; context.strokeStyle = "#07141c"; context.stroke();
+  return context.getImageData(0, 0, size, size);
+}
+
+function makeClusterIcon(count: number) {
+  const displaySize = count >= 100 ? 42 : count >= 10 ? 36 : 31;
+  const scale = 2; const size = displaySize * scale; const center = size / 2;
+  const canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const gradient = context.createRadialGradient(center * 0.7, center * 0.63, 1, center, center, center);
+  gradient.addColorStop(0, "#7952b5"); gradient.addColorStop(1, "#241c3c");
+  context.beginPath(); context.arc(center, center, center - 2, 0, Math.PI * 2);
+  context.fillStyle = gradient; context.fill();
+  context.lineWidth = 4; context.strokeStyle = "#dc97ff"; context.stroke();
+  context.fillStyle = "#ffffff";
+  context.font = `850 ${22 * scale / 2}px Arial, Helvetica, sans-serif`;
+  context.textAlign = "center"; context.textBaseline = "middle";
+  context.fillText(String(count), center, center + 0.5);
   return context.getImageData(0, 0, size, size);
 }
 
@@ -143,12 +185,11 @@ export default function Home() {
   useEffect(() => {
     if (!mapContainer.current || mapRef.current || !places.length) return;
     let cancelled = false;
-    let initialLoadingTimer = 0;
     import("maplibre-gl").then(({ default: maplibregl }) => {
       if (cancelled || !mapContainer.current) return;
       const map = new maplibregl.Map({
         container: mapContainer.current,
-        style: MAP_STYLE_URL,
+        style: MAP_STYLE,
         center: [13.9, 47.8], zoom: 4, minZoom: 2, maxZoom: 17,
         attributionControl: false, fadeDuration: 0,
       });
@@ -156,36 +197,22 @@ export default function Home() {
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-      const hideInitialLoading = () => mapLoadingRef.current?.classList.remove("visible");
-      initialLoadingTimer = window.setTimeout(hideInitialLoading, 5000);
-      map.once("idle", () => { window.clearTimeout(initialLoadingTimer); hideInitialLoading(); });
-
       map.on("load", () => {
         if (cancelled) return;
-        const style = map.getStyle();
-        for (const layer of style.layers ?? []) {
-          if (layer.type !== "symbol") continue;
-          const textField = layer.layout?.["text-field"];
-          if (typeof textField === "string" && textField.includes("{name}")) {
-            map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name_en"], ["get", "name"]]);
-          }
-        }
+        mapLoadingRef.current?.classList.remove("visible");
 
+        for (let count = 2; count <= places.length; count += 1) {
+          const icon = makeClusterIcon(count);
+          if (icon) map.addImage(`cluster-${count}`, icon, { pixelRatio: 2 });
+        }
+        const star = makeTopStar();
+        if (star) map.addImage("top-star", star, { pixelRatio: 2 });
         map.addSource("clips", {
           type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 16, clusterRadius: 32,
         });
         map.addLayer({
-          id: "clip-clusters", type: "circle", source: "clips", filter: ["has", "point_count"],
-          paint: {
-            "circle-color": "#2b203f", "circle-radius": ["step", ["get", "point_count"], 16, 10, 18, 100, 21],
-            "circle-stroke-color": "#dc97ff", "circle-stroke-width": 2,
-            "circle-blur": 0.03, "circle-opacity": 0.96,
-          },
-        });
-        map.addLayer({
-          id: "clip-cluster-count", type: "symbol", source: "clips", filter: ["has", "point_count"],
-          layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 11, "text-allow-overlap": true },
-          paint: { "text-color": "#ffffff", "text-halo-color": "rgba(7,17,24,.55)", "text-halo-width": 0.6 },
+          id: "clip-clusters", type: "symbol", source: "clips", filter: ["has", "point_count"],
+          layout: { "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]], "icon-allow-overlap": true },
         });
         map.addLayer({
           id: "clip-points", type: "circle", source: "clips",
@@ -196,8 +223,6 @@ export default function Home() {
             "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
           },
         });
-        const star = makeTopStar();
-        if (star) map.addImage("top-star", star, { pixelRatio: 2 });
         map.addLayer({
           id: "top-points", type: "symbol", source: "clips",
           filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], true]],
@@ -245,7 +270,7 @@ export default function Home() {
       });
     });
     return () => {
-      cancelled = true; window.clearTimeout(initialLoadingTimer);
+      cancelled = true;
       mapRef.current?.remove(); mapRef.current = null;
     };
   }, [places]);
@@ -360,7 +385,7 @@ export default function Home() {
 
       <div ref={mapContainer} className="map" aria-label="Interactive map of ZedTheCyclist clips"
         data-visible-count={visiblePlaces.length} />
-      <div ref={mapLoadingRef} className="map-loading visible" role="status" aria-label="Loading map">
+      <div ref={mapLoadingRef} className="map-loading" role="status" aria-label="Loading map">
         <span className="map-loading-spinner" aria-hidden="true" />
       </div>
 
