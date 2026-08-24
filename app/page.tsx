@@ -28,6 +28,18 @@ const MAP_STYLE: StyleSpecification = {
   ],
 };
 const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
+const COUNTRY_NAMES_HU: Record<string, string> = {
+  Austria: "Ausztria",
+  Belgium: "Belgium",
+  Croatia: "Horvátország",
+  Germany: "Németország",
+  Hungary: "Magyarország",
+  Italy: "Olaszország",
+  Netherlands: "Hollandia",
+  Slovakia: "Szlovákia",
+  Slovenia: "Szlovénia",
+  Sweden: "Svédország",
+};
 const prefetchedTileUrls = new Set<string>();
 const tilePrefetchQueue: string[] = [];
 let activeTilePrefetches = 0;
@@ -94,6 +106,7 @@ type Place = {
 
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
+function countryNameHu(country: string) { return COUNTRY_NAMES_HU[country] ?? country; }
 function countValues(values: string[]) {
   return values.reduce<Record<string, number>>((counts, value) => {
     if (value) counts[value] = (counts[value] ?? 0) + 1;
@@ -113,7 +126,7 @@ function placesToGeoJson(places: Place[]) {
       id: place.id,
       geometry: { type: "Point" as const, coordinates: [place.longitude, place.latitude] },
       properties: {
-        id: place.id, name: place.name || "Untitled clip", linked: Boolean(place.clipUrl), top: place.top,
+        id: place.id, name: place.name || "Névtelen klip", linked: Boolean(place.clipUrl), top: place.top,
       },
     })),
   };
@@ -195,7 +208,8 @@ export default function Home() {
   const [online, setOnline] = useState(false);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
-  const countries = useMemo(() => unique(places.map((place) => place.country)), [places]);
+  const countries = useMemo(() => unique(places.map((place) => place.country))
+    .sort((a, b) => countryNameHu(a).localeCompare(countryNameHu(b), "hu")), [places]);
   const categoryCounts = useMemo(() => countValues(places.map((place) => place.category)), [places]);
   const countryCounts = useMemo(() => countValues(places.map((place) => place.country)), [places]);
   const topCount = useMemo(() => places.filter((place) => place.top).length, [places]);
@@ -214,7 +228,7 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     fetch("/api/places").then((response) => {
-      if (!response.ok) throw new Error("Unable to load places");
+      if (!response.ok) throw new Error("A helyszínek nem tölthetők be");
       return response.json();
     }).then((data: Place[]) => {
       if (!active) return;
@@ -321,7 +335,7 @@ export default function Home() {
             const feature = event.features?.[0];
             if (!feature || feature.geometry.type !== "Point") return;
             popup.setLngLat(feature.geometry.coordinates as [number, number])
-              .setText(String(feature.properties?.name ?? "Untitled clip")).addTo(map);
+              .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
           });
           map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
           map.on("click", layerId, (event) => {
@@ -405,7 +419,7 @@ export default function Home() {
           <div className="wordmark" aria-label="ZedTheCyclist"><span>Zed</span><em>The</em><span>Cyclist</span></div>
           <small>Zarándoklatai</small>
         </div>
-        <a className="twitch-button" href={TWITCH_URL} target="_blank" rel="noreferrer">Visit on Twitch</a>
+        <a className="twitch-button" href={TWITCH_URL} target="_blank" rel="noreferrer">Twitch profil</a>
         {online && (
           <a className="live-button" href={TWITCH_URL} target="_blank" rel="noreferrer">
             <span className="live-led" aria-hidden="true" />LIVE
@@ -417,26 +431,26 @@ export default function Home() {
         <div className="search-box">
           <span className="search-icon" aria-hidden="true" />
           <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Balaton, jumpscare, macska, ..." aria-label="Search clips" />
-          {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">×</button>}
+            placeholder="Balaton, ijesztés, macska, ..." aria-label="Keresés a klipek között" />
+          {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")} aria-label="Keresés törlése">×</button>}
         </div>
         <button className="filter-button" onClick={() => setFiltersOpen((open) => !open)}
           aria-expanded={filtersOpen} aria-controls="filters-panel">
-          <span className="filter-icon" aria-hidden="true"><i /><i /><i /></span>Filters
+          <span className="filter-icon" aria-hidden="true"><i /><i /><i /></span>Szűrők
         </button>
         {filtersOpen && (
           <>
-            <button className="filter-dismiss" onClick={() => setFiltersOpen(false)} aria-label="Close filters" />
-            <section className="filters-panel" id="filters-panel" aria-label="Map filters">
+            <button className="filter-dismiss" onClick={() => setFiltersOpen(false)} aria-label="Szűrők bezárása" />
+            <section className="filters-panel" id="filters-panel" aria-label="Térképszűrők">
               <div className="filter-section">
-                <h2>Top clip-ek</h2>
+                <h2>Kiemelt klipek</h2>
                 <div className="filter-options single-option">
                   <label><input type="checkbox" checked={topOnly} onChange={() => setTopOnly((value) => !value)} />
-                    <span>Csak TOP clip-ek <small>({topCount})</small></span></label>
+                    <span>Csak TOP klipek <small>({topCount})</small></span></label>
                 </div>
               </div>
               <div className="filter-section">
-                <h2>Category</h2>
+                <h2>Kategória</h2>
                 <div className="filter-options">
                   <label className="select-all-option">
                     <input type="checkbox" checked={selectedCategories.length === categories.length}
@@ -451,7 +465,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="filter-section countries-section">
-                <h2>Countries</h2>
+                <h2>Országok</h2>
                 <div className="filter-options country-options">
                   <label className="select-all-option">
                     <input type="checkbox" checked={selectedCountries.length === countries.length}
@@ -461,7 +475,7 @@ export default function Home() {
                   {countries.map((country) => (
                     <label key={country}><input type="checkbox" checked={selectedCountries.includes(country)}
                       onChange={() => toggleFilter(country, selectedCountries, setSelectedCountries)} />
-                      <span>{country} <small>({countryCounts[country]})</small></span></label>
+                      <span>{countryNameHu(country)} <small>({countryCounts[country]})</small></span></label>
                   ))}
                 </div>
               </div>
@@ -470,21 +484,21 @@ export default function Home() {
         )}
       </div>
 
-      <div ref={mapContainer} className="map" aria-label="Interactive map of ZedTheCyclist clips"
+      <div ref={mapContainer} className="map" aria-label="ZedTheCyclist klipjeinek interaktív térképe"
         data-visible-count={visiblePlaces.length} />
-      <div ref={mapLoadingRef} className="map-loading" role="status" aria-label="Loading map">
+      <div ref={mapLoadingRef} className="map-loading" role="status" aria-label="Térkép betöltése">
         <span className="map-loading-spinner" aria-hidden="true" />
       </div>
 
       {selected && clipId && (
         <div className="modal-backdrop">
-          <button className="modal-dismiss" onClick={() => setSelected(null)} aria-label="Close clip" />
+          <button className="modal-dismiss" onClick={() => setSelected(null)} aria-label="Klip bezárása" />
           <section className="clip-modal" role="dialog" aria-modal="true" aria-labelledby="clip-modal-title">
             <div className="modal-heading">
               <h2 id="clip-modal-title">{selected.name}</h2>
               <div className="modal-actions">
                 {selected.top && <span className="top-badge">TOP</span>}
-                <button className="close-button" onClick={() => setSelected(null)} aria-label="Close clip"><span /><span /></button>
+                <button className="close-button" onClick={() => setSelected(null)} aria-label="Klip bezárása"><span /><span /></button>
               </div>
             </div>
             <ClipPlayer key={clipId} clipId={clipId} parent={parent} title={selected.twitchTitle || selected.name} />

@@ -5,6 +5,11 @@ const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
 const LIVE_URL = "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live";
 const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png";
 const LABEL_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
+const COUNTRY_NAMES_HU = {
+  Austria: "Ausztria", Belgium: "Belgium", Croatia: "Horvátország", Germany: "Németország",
+  Hungary: "Magyarország", Italy: "Olaszország", Netherlands: "Hollandia", Slovakia: "Szlovákia",
+  Slovenia: "Szlovénia", Sweden: "Svédország",
+};
 const MAP_STYLE = {
   version: 8,
   sources: {
@@ -32,10 +37,6 @@ const appCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf
 
 const cell = (row, index) => row.c?.[index]?.v ?? "";
 const clipId = (url) => String(url).match(/\/clip\/([^/?#]+)/)?.[1] ?? "";
-const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
-})[char]);
-
 const endpoint = `https://docs.google.com/spreadsheets/d/${SOURCE}/gviz/tq?tqx=out:json&gid=0`;
 const raw = await (await fetch(endpoint)).text();
 const payload = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
@@ -62,16 +63,9 @@ const places = payload.table.rows.map((row, index) => {
 }).filter((place) => place.name !== "Clip name" && Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
 
 const unique = (values) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-const countValues = (values) => values.reduce((counts, value) => {
-  if (value) counts[value] = (counts[value] ?? 0) + 1;
-  return counts;
-}, {});
 const categories = unique(places.map((place) => place.category));
 const countries = unique(places.map((place) => place.country));
-const categoryCounts = countValues(places.map((place) => place.category));
-const countryCounts = countValues(places.map((place) => place.country));
 const topCount = places.filter((place) => place.top).length;
-const checkbox = (type, value, count) => `<label><input type="checkbox" data-filter="${type}" value="${escapeHtml(value)}" checked><span>${escapeHtml(value)} <small>(${count})</small></span></label>`;
 const data = JSON.stringify(places).replace(/</g, "\\u003c");
 
 const html = `<!doctype html>
@@ -98,43 +92,43 @@ const html = `<!doctype html>
         <div class="wordmark" aria-label="ZedTheCyclist"><span>Zed</span><em>The</em><span>Cyclist</span></div>
         <small>Zarándoklatai</small>
       </div>
-      <a class="twitch-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer">Visit on Twitch</a>
+      <a class="twitch-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer">Twitch profil</a>
       <a class="live-button" id="live-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer" hidden><span class="live-led" aria-hidden="true"></span>LIVE</a>
     </header>
 
     <div class="filter-area">
       <div class="search-box">
         <span class="search-icon" aria-hidden="true"></span>
-        <input id="search-input" type="search" placeholder="Balaton, jumpscare, macska, ..." aria-label="Search clips">
-        <button class="search-clear" id="search-clear" aria-label="Clear search" hidden>×</button>
+        <input id="search-input" type="search" placeholder="Balaton, ijesztés, macska, ..." aria-label="Keresés a klipek között">
+        <button class="search-clear" id="search-clear" aria-label="Keresés törlése" hidden>×</button>
       </div>
-      <button class="filter-button" id="filter-button" aria-expanded="false" aria-controls="filters-panel"><span class="filter-icon" aria-hidden="true"><i></i><i></i><i></i></span>Filters</button>
-      <button class="filter-dismiss" id="filter-dismiss" aria-label="Close filters"></button>
-      <section class="filters-panel" id="filters-panel" aria-label="Map filters">
+      <button class="filter-button" id="filter-button" aria-expanded="false" aria-controls="filters-panel"><span class="filter-icon" aria-hidden="true"><i></i><i></i><i></i></span>Szűrők</button>
+      <button class="filter-dismiss" id="filter-dismiss" aria-label="Szűrők bezárása"></button>
+      <section class="filters-panel" id="filters-panel" aria-label="Térképszűrők">
         <div class="filter-section">
-          <h2>Top clip-ek</h2>
-          <div class="filter-options single-option"><label><input type="checkbox" id="top-only"><span>Csak TOP clip-ek <small>(${topCount})</small></span></label></div>
+          <h2>Kiemelt klipek</h2>
+          <div class="filter-options single-option"><label><input type="checkbox" id="top-only"><span>Csak TOP klipek <small id="top-count"></small></span></label></div>
         </div>
         <div class="filter-section">
-          <h2>Category</h2>
-          <div class="filter-options"><label class="select-all-option"><input type="checkbox" data-select-all="category" checked><span>ÖSSZES</span></label>${categories.map((item) => checkbox("category", item, categoryCounts[item])).join("")}</div>
+          <h2>Kategória</h2>
+          <div class="filter-options" id="category-options"><label class="select-all-option"><input type="checkbox" data-select-all="category" checked><span>ÖSSZES</span></label></div>
         </div>
         <div class="filter-section countries-section">
-          <h2>Countries</h2>
-          <div class="filter-options country-options"><label class="select-all-option"><input type="checkbox" data-select-all="country" checked><span>ÖSSZES</span></label>${countries.map((item) => checkbox("country", item, countryCounts[item])).join("")}</div>
+          <h2>Országok</h2>
+          <div class="filter-options country-options" id="country-options"><label class="select-all-option"><input type="checkbox" data-select-all="country" checked><span>ÖSSZES</span></label></div>
         </div>
       </section>
     </div>
 
-    <div id="map" class="map" aria-label="Interactive map of ZedTheCyclist clips"></div>
-    <div class="map-loading" id="map-loading" role="status" aria-label="Loading map"><span class="map-loading-spinner" aria-hidden="true"></span></div>
+    <div id="map" class="map" aria-label="ZedTheCyclist klipjeinek interaktív térképe"></div>
+    <div class="map-loading" id="map-loading" role="status" aria-label="Térkép betöltése"><span class="map-loading-spinner" aria-hidden="true"></span></div>
 
     <div class="modal-backdrop" id="modal-backdrop" aria-hidden="true">
-      <button class="modal-dismiss" id="modal-dismiss" aria-label="Close clip"></button>
+      <button class="modal-dismiss" id="modal-dismiss" aria-label="Klip bezárása"></button>
       <section class="clip-modal" role="dialog" aria-modal="true" aria-labelledby="clip-modal-title">
         <div class="modal-heading">
           <h2 id="clip-modal-title"></h2>
-          <div class="modal-actions"><span class="top-badge" id="top-badge" hidden>TOP</span><button class="close-button" id="close-button" aria-label="Close clip"><span></span><span></span></button></div>
+          <div class="modal-actions"><span class="top-badge" id="top-badge" hidden>TOP</span><button class="close-button" id="close-button" aria-label="Klip bezárása"><span></span><span></span></button></div>
         </div>
         <div class="player-frame" id="player-frame"></div>
       </section>
@@ -144,12 +138,18 @@ const html = `<!doctype html>
   <script type="module">
     import * as maplibregl from "./maplibre-gl.mjs";
     const places=${data};
-    const categories=${JSON.stringify(categories)},countries=${JSON.stringify(countries)};
+    const normalizeSearch=value=>String(value).normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLocaleLowerCase("hu-HU").replace(/[^\\p{L}\\p{N}]+/gu," ").trim();
+    const clipId=url=>(String(url).match(/\\/clip\\/([^/?#]+)/)||[])[1]||"";
+    const unique=values=>[...new Set(values.filter(Boolean))];
+    const countValues=values=>values.reduce((counts,value)=>{if(value)counts[value]=(counts[value]||0)+1;return counts},{});
+    const countryNames=${JSON.stringify(COUNTRY_NAMES_HU)},countryName=country=>countryNames[country]||country;
+    const categories=unique(places.map(place=>place.category)).sort((a,b)=>a.localeCompare(b));
+    const countries=unique(places.map(place=>place.country)).sort((a,b)=>countryName(a).localeCompare(countryName(b),"hu"));
+    const categoryCounts=countValues(places.map(place=>place.category)),countryCounts=countValues(places.map(place=>place.country));
     const selectedCategories=new Set(categories),selectedCountries=new Set(countries);
     let topOnly=false,searchQuery="";
-    const normalizeSearch=value=>String(value).normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLocaleLowerCase("hu-HU").replace(/[^\\p{L}\\p{N}]+/gu," ").trim();
-    const escapeHtml=value=>String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[char]));
-    const clipId=url=>(String(url).match(/\\/clip\\/([^/?#]+)/)||[])[1]||"";
+    function addFilterOptions(type,values,counts){const container=document.getElementById(type+"-options");values.forEach(value=>{const label=document.createElement("label"),input=document.createElement("input"),span=document.createElement("span"),small=document.createElement("small");input.type="checkbox";input.dataset.filter=type;input.value=value;input.checked=true;span.append(document.createTextNode((type==="country"?countryName(value):value)+" "));small.textContent="("+counts[value]+")";span.append(small);label.append(input,span);container.append(label)})}
+    addFilterOptions("category",categories,categoryCounts);addFilterOptions("country",countries,countryCounts);document.getElementById("top-count").textContent="("+places.filter(place=>place.top).length+")";
 
     fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
 
@@ -165,7 +165,7 @@ const html = `<!doctype html>
     function wakeMap(){requestAnimationFrame(()=>requestAnimationFrame(()=>{map.resize();map.triggerRepaint();scheduleTilePrefetch()}))}
     new ResizeObserver(wakeMap).observe(document.getElementById("map"));window.addEventListener("load",wakeMap);window.addEventListener("pageshow",wakeMap);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")wakeMap()});map.on("moveend",scheduleTilePrefetch);map.on("idle",scheduleTilePrefetch);
 
-    function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Untitled clip",linked:Boolean(place.clipUrl),top:place.top}}))}}
+    function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Névtelen klip",linked:Boolean(place.clipUrl),top:place.top}}))}}
     function addTopStar(){const size=40,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return;const outer=17,inner=7.4,center=size/2;context.beginPath();for(let index=0;index<10;index+=1){const radius=index%2===0?outer:inner,angle=-Math.PI/2+index*Math.PI/5,x=center+Math.cos(angle)*radius,y=center+Math.sin(angle)*radius;index===0?context.moveTo(x,y):context.lineTo(x,y)}context.closePath();const gradient=context.createLinearGradient(8,6,31,34);gradient.addColorStop(0,"#f1a4ff");gradient.addColorStop(.58,"#a64cff");gradient.addColorStop(1,"#7047e8");context.fillStyle=gradient;context.fill();context.lineWidth=2.5;context.strokeStyle="#07141c";context.stroke();map.addImage("top-star",context.getImageData(0,0,size,size),{pixelRatio:2})}
     function addClusterIcons(){for(let count=2;count<=places.length;count+=1){const displaySize=count>=100?42:count>=10?36:31,scale=2,size=displaySize*scale,center=size/2,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)continue;const gradient=context.createRadialGradient(center*.7,center*.63,1,center,center,center);gradient.addColorStop(0,"#7952b5");gradient.addColorStop(1,"#241c3c");context.beginPath();context.arc(center,center,center-2,0,Math.PI*2);context.fillStyle=gradient;context.fill();context.lineWidth=4;context.strokeStyle="#dc97ff";context.stroke();context.fillStyle="#fff";context.font="850 22px Arial, Helvetica, sans-serif";context.textAlign="center";context.textBaseline="middle";context.fillText(String(count),center,center+.5);map.addImage("cluster-"+count,context.getImageData(0,0,size,size),{pixelRatio:2})}}
 
@@ -177,7 +177,7 @@ const html = `<!doctype html>
       map.addLayer({id:"clip-points",type:"circle",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],false]],paint:{"circle-radius":["case",["get","linked"],5,4],"circle-color":["case",["get","linked"],"#bd5cff","#7c9299"],"circle-stroke-color":"#07141c","circle-stroke-width":1.5}});
       map.addLayer({id:"top-points",type:"symbol",source:"clips",filter:["all",["!",["has","point_count"]],["==",["get","top"],true]],layout:{"icon-image":"top-star","icon-size":1,"icon-allow-overlap":true}});
       const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:"clip-map-tooltip"});
-      function bindPointLayer(layerId){map.on("mouseenter",layerId,event=>{map.getCanvas().style.cursor="pointer";const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.name||"Untitled clip").addTo(map)});map.on("mouseleave",layerId,()=>{map.getCanvas().style.cursor="";popup.remove()});map.on("click",layerId,event=>{const id=Number(event.features&&event.features[0]&&event.features[0].properties.id),place=places.find(item=>item.id===id);if(place&&place.clipUrl)openClip(place)})}
+      function bindPointLayer(layerId){map.on("mouseenter",layerId,event=>{map.getCanvas().style.cursor="pointer";const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.name||"Névtelen klip").addTo(map)});map.on("mouseleave",layerId,()=>{map.getCanvas().style.cursor="";popup.remove()});map.on("click",layerId,event=>{const id=Number(event.features&&event.features[0]&&event.features[0].properties.id),place=places.find(item=>item.id===id);if(place&&place.clipUrl)openClip(place)})}
       bindPointLayer("clip-points");bindPointLayer("top-points");
       map.on("mouseenter","clip-clusters",()=>{map.getCanvas().style.cursor="pointer"});map.on("mouseleave","clip-clusters",()=>{map.getCanvas().style.cursor=""});
       map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;map.getSource("clips").getClusterExpansionZoom(Number(feature.properties.cluster_id)).then(zoom=>map.easeTo({center:feature.geometry.coordinates,zoom,duration:520})).catch(()=>{})});

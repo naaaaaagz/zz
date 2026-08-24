@@ -6,8 +6,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ZedTheCyclist — Pilgrimage Map",
-  description: "Explore 400+ memorable moments from ZedTheCyclist's journeys.",
+  title: "ZedTheCyclist — Zarándoklatai",
+  description: "Fedezd fel ZedTheCyclist utazásainak több mint 400 emlékezetes pillanatát.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
