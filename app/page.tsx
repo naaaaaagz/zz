@@ -112,23 +112,27 @@ export default function Home() {
       if (cancelled || !mapContainer.current) return;
       const map = leaflet.map(mapContainer.current, {
         center: [47.8, 13.9], zoom: 4, minZoom: 2, maxZoom: 18,
-        zoomControl: false, attributionControl: false,
+        zoomControl: false, attributionControl: false, fadeAnimation: false,
       });
       mapRef.current = map;
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       leaflet.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
 
-      const addBufferedTileLayer = (url: string, attribution = "", options: { subdomains?: string; maxNativeZoom?: number } = {}) => {
-        const tileLayer = leaflet.tileLayer(url, { maxZoom: 20, keepBuffer: 4, updateWhenIdle: false, attribution, ...options });
+      const addBufferedTileLayer = (url: string, attribution = "", options: { subdomains?: string; maxNativeZoom?: number } = {}, preloadTiles = 2) => {
+        const tileLayer = leaflet.tileLayer(url, { maxZoom: 20, keepBuffer: 6, updateWhenIdle: false, updateInterval: 100, attribution, ...options });
         const bufferedLayer = tileLayer as typeof tileLayer & { _getTiledPixelBounds(center: LatLng): Bounds };
         const getVisiblePixelBounds = bufferedLayer._getTiledPixelBounds.bind(bufferedLayer);
         bufferedLayer._getTiledPixelBounds = (center) => {
           const visibleBounds = getVisiblePixelBounds(center);
-          const edgeBuffer = bufferedLayer.getTileSize();
+          const edgeBuffer = bufferedLayer.getTileSize().multiplyBy(preloadTiles);
           return leaflet.bounds(visibleBounds.min.subtract(edgeBuffer), visibleBounds.max.add(edgeBuffer));
         };
         tileLayer.addTo(map);
       };
+      addBufferedTileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        "Tiles &copy; Esri", { maxNativeZoom: 16 }, 1,
+      );
       addBufferedTileLayer(
         "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -157,7 +161,7 @@ export default function Home() {
           const count = cluster.getChildCount();
           const size = count >= 100 ? 42 : count >= 10 ? 36 : 31;
           return leaflet.divIcon({
-            className: "clip-cluster-wrapper", html: `<span class="clip-cluster">${count}</span>`, iconSize: [size, size],
+            className: "clip-cluster-wrapper", html: `<span class="clip-cluster"><b>${count}</b></span>`, iconSize: [size, size],
           });
         },
       });
@@ -221,7 +225,7 @@ export default function Home() {
         <a className="twitch-button" href={TWITCH_URL} target="_blank" rel="noreferrer">Visit on Twitch</a>
         {online && (
           <a className="live-button" href={TWITCH_URL} target="_blank" rel="noreferrer">
-            <span className="live-led" aria-hidden="true" />ONLINE
+            <span className="live-led" aria-hidden="true" />LIVE
           </a>
         )}
       </header>
@@ -298,7 +302,6 @@ export default function Home() {
               </div>
             </div>
             <ClipPlayer key={clipId} clipId={clipId} parent={parent} title={selected.twitchTitle || selected.name} />
-            {selected.keywords && <p className="modal-keywords">{selected.keywords}</p>}
           </section>
         </div>
       )}

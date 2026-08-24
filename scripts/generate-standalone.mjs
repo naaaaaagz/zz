@@ -79,7 +79,7 @@ const html = `<!doctype html>
         <small>Zarándoklatai</small>
       </div>
       <a class="twitch-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer">Visit on Twitch</a>
-      <a class="live-button" id="live-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer" hidden><span class="live-led" aria-hidden="true"></span>ONLINE</a>
+      <a class="live-button" id="live-button" href="${TWITCH_URL}" target="_blank" rel="noreferrer" hidden><span class="live-led" aria-hidden="true"></span>LIVE</a>
     </header>
 
     <div class="filter-area">
@@ -116,7 +116,6 @@ const html = `<!doctype html>
           <div class="modal-actions"><span class="top-badge" id="top-badge" hidden>TOP</span><button class="close-button" id="close-button" aria-label="Close clip"><span></span><span></span></button></div>
         </div>
         <div class="player-frame" id="player-frame"></div>
-        <p class="modal-keywords" id="modal-keywords"></p>
       </section>
     </div>
   </main>
@@ -134,20 +133,21 @@ const html = `<!doctype html>
 
     fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
 
-    const map=L.map("map",{center:[47.8,13.9],zoom:4,minZoom:2,maxZoom:18,zoomControl:false,attributionControl:false});
+    const map=L.map("map",{center:[47.8,13.9],zoom:4,minZoom:2,maxZoom:18,zoomControl:false,attributionControl:false,fadeAnimation:false});
     L.control.zoom({position:"bottomright"}).addTo(map);L.control.attribution({position:"bottomleft",prefix:false}).addTo(map);
-    function addBufferedTileLayer(url,attribution="",options={}){const tileLayer=L.tileLayer(url,{maxZoom:20,keepBuffer:4,updateWhenIdle:false,attribution,...options});const getVisiblePixelBounds=tileLayer._getTiledPixelBounds.bind(tileLayer);tileLayer._getTiledPixelBounds=center=>{const visibleBounds=getVisiblePixelBounds(center),edgeBuffer=tileLayer.getTileSize();return L.bounds(visibleBounds.min.subtract(edgeBuffer),visibleBounds.max.add(edgeBuffer))};tileLayer.addTo(map)}
+    function addBufferedTileLayer(url,attribution="",options={},preloadTiles=2){const tileLayer=L.tileLayer(url,{maxZoom:20,keepBuffer:6,updateWhenIdle:false,updateInterval:100,attribution,...options});const getVisiblePixelBounds=tileLayer._getTiledPixelBounds.bind(tileLayer);tileLayer._getTiledPixelBounds=center=>{const visibleBounds=getVisiblePixelBounds(center),edgeBuffer=tileLayer.getTileSize().multiplyBy(preloadTiles);return L.bounds(visibleBounds.min.subtract(edgeBuffer),visibleBounds.max.add(edgeBuffer))};tileLayer.addTo(map)}
+    addBufferedTileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}","Tiles &copy; Esri",{maxNativeZoom:16},1);
     addBufferedTileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',{subdomains:"abcd"});
     addBufferedTileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}","",{maxNativeZoom:16});
     map.createPane("countryBorders");map.getPane("countryBorders").style.zIndex="350";
     fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(geoJson)L.geoJSON(geoJson,{pane:"countryBorders",interactive:false,style:{color:"#86a8b3",weight:1.65,opacity:.68,fillOpacity:0}}).addTo(map)}).catch(()=>{});
 
-    const clusters=L.markerClusterGroup({maxClusterRadius:zoom=>zoom>=15?18:zoom>=10?24:32,showCoverageOnHover:false,zoomToBoundsOnClick:true,spiderfyOnMaxZoom:true,removeOutsideVisibleBounds:true,iconCreateFunction:cluster=>{const count=cluster.getChildCount(),size=count>=100?42:count>=10?36:31;return L.divIcon({className:"clip-cluster-wrapper",html:'<span class="clip-cluster">'+count+'</span>',iconSize:[size,size]})}}).addTo(map);
+    const clusters=L.markerClusterGroup({maxClusterRadius:zoom=>zoom>=15?18:zoom>=10?24:32,showCoverageOnHover:false,zoomToBoundsOnClick:true,spiderfyOnMaxZoom:true,removeOutsideVisibleBounds:true,iconCreateFunction:cluster=>{const count=cluster.getChildCount(),size=count>=100?42:count>=10?36:31;return L.divIcon({className:"clip-cluster-wrapper",html:'<span class="clip-cluster"><b>'+count+'</b></span>',iconSize:[size,size]})}}).addTo(map);
     const bounds=L.latLngBounds(places.map(place=>[place.latitude,place.longitude]));if(bounds.isValid())map.fitBounds(bounds.pad(.06),{maxZoom:7});
 
-    const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),keywords=document.getElementById("modal-keywords"),topBadge=document.getElementById("top-badge");
+    const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge");
     function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren();document.body.classList.remove("modal-open")}
-    function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;keywords.textContent=place.keywords;keywords.hidden=!place.keywords;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
+    function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
     function renderMarkers(){clusters.clearLayers();const tokens=normalizeSearch(searchQuery).split(/\\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords].join(" "));return tokens.every(token=>haystack.includes(token))});document.getElementById("map").dataset.visibleCount=String(visible.length);visible.forEach(place=>{const type=place.top?"top":place.clipUrl?"clip":"unlinked",size=place.top?17:place.clipUrl?12:10;const marker=L.marker([place.latitude,place.longitude],{icon:L.divIcon({className:"clip-marker-wrapper",html:'<span class="clip-marker '+type+'"></span>',iconSize:[size,size],iconAnchor:[size/2,size/2]}),keyboard:Boolean(place.clipUrl),bubblingMouseEvents:false});marker.bindTooltip(escapeHtml(place.name||"Untitled clip"),{direction:"top",offset:[0,place.top?-10:-8],opacity:1});if(place.clipUrl)marker.on("click",()=>openClip(place));clusters.addLayer(marker)})}
     renderMarkers();requestAnimationFrame(()=>map.invalidateSize());
 
