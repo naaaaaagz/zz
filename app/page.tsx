@@ -324,8 +324,9 @@ export default function Home() {
   }, [listSort, listSortDirection, listTopOnly, viewportBounds, visiblePlaces]);
   const connectorPlace = hoveredListPlace ?? activeListPlace;
   const highlightedPlace = hoveredListPlace ?? mapHoveredPlace;
+  const viewportHidesClips = visiblePlaces.some((place) => !placeIsInViewport(place, viewportBounds));
   const hasActiveFilters = topOnly || listTopOnly || Boolean(searchTokens.length)
-    || selectedCategories.length !== categories.length || selectedCountries.length !== countries.length;
+    || selectedCategories.length !== categories.length || selectedCountries.length !== countries.length || viewportHidesClips;
 
   useEffect(() => {
     let active = true;
@@ -454,15 +455,15 @@ export default function Home() {
           id: "active-clip-point", type: "circle", source: "active-clip",
           filter: ["==", ["get", "top"], false],
           paint: {
-            "circle-radius": ["case", ["get", "linked"], 15, 12],
+            "circle-radius": ["case", ["get", "linked"], 9.5, 7.5],
             "circle-color": ["case", ["get", "linked"], "#c86cff", "#91a5ac"],
-            "circle-stroke-color": "#f0c4ff", "circle-stroke-width": 2.5, "circle-blur": 0.06,
+            "circle-stroke-color": "#f0c4ff", "circle-stroke-width": 2, "circle-blur": 0.06,
           },
         });
         map.addLayer({
           id: "active-top-point", type: "symbol", source: "active-clip",
           filter: ["==", ["get", "top"], true],
-          layout: { "icon-image": "top-star", "icon-size": 3, "icon-allow-overlap": true },
+          layout: { "icon-image": "top-star", "icon-size": 1.8, "icon-allow-overlap": true },
         });
 
         const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
