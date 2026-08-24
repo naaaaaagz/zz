@@ -107,10 +107,6 @@ type Place = {
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
 function countryNameHu(country: string) { return COUNTRY_NAMES_HU[country] ?? country; }
-function detailedClusterZoom(pointCount: number, currentZoom: number, expansionZoom: number) {
-  const detailZoom = pointCount > 100 ? 11.5 : pointCount > 20 ? 12.5 : pointCount > 5 ? 13.5 : 15;
-  return Math.min(16, Math.max(expansionZoom + 2, currentZoom + 3.5, detailZoom));
-}
 function countValues(values: string[]) {
   return values.reduce<Record<string, number>>((counts, value) => {
     if (value) counts[value] = (counts[value] ?? 0) + 1;
@@ -356,10 +352,21 @@ export default function Home() {
           if (!feature || feature.geometry.type !== "Point") return;
           const clusterId = Number(feature.properties?.cluster_id);
           const pointCount = Number(feature.properties?.point_count ?? 2);
-          (map.getSource("clips") as GeoJSONSource).getClusterExpansionZoom(clusterId).then((zoom) => {
-            const targetZoom = detailedClusterZoom(pointCount, map.getZoom(), zoom);
-            const duration = Math.min(900, 480 + Math.abs(targetZoom - map.getZoom()) * 55);
-            map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: targetZoom, duration });
+          (map.getSource("clips") as GeoJSONSource).getClusterLeaves(clusterId, pointCount, 0).then((leaves) => {
+            const coordinates = leaves.flatMap((leaf) => leaf.geometry.type === "Point"
+              ? [[Number(leaf.geometry.coordinates[0]), Number(leaf.geometry.coordinates[1])]] : []);
+            if (!coordinates.length) return;
+            const west = Math.min(...coordinates.map(([longitude]) => longitude));
+            const east = Math.max(...coordinates.map(([longitude]) => longitude));
+            const south = Math.min(...coordinates.map(([, latitude]) => latitude));
+            const north = Math.max(...coordinates.map(([, latitude]) => latitude));
+            const padding = Math.max(48, Math.min(100,
+              Math.round(Math.min(map.getContainer().clientWidth, map.getContainer().clientHeight) * 0.09)));
+            if (west === east && south === north) {
+              map.easeTo({ center: [west, south], zoom: 16, duration: 720 });
+            } else {
+              map.fitBounds([[west, south], [east, north]], { padding, maxZoom: 16, duration: 720 });
+            }
           }).catch(() => {});
         });
 
