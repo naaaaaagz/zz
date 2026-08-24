@@ -108,7 +108,7 @@ type SearchSuggestion = {
   label: string; normalized: string; kind: string; count: number; topHits: number; priority: number;
 };
 
-type ConnectorLine = { left: number; top: number; width: number; angle: number };
+type ConnectorLine = { left: number; top: number; width: number; angle: number; preview: boolean };
 
 function getClipId(url: string) { return url.match(/\/clip\/([^/?#]+)/)?.[1] ?? ""; }
 function unique(values: string[]) { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
@@ -270,7 +270,11 @@ export default function Home() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [suggestionCursor, setSuggestionCursor] = useState(0);
   const [listOpen, setListOpen] = useState(false);
+  const [listTopOnly, setListTopOnly] = useState(false);
+  const [listSort, setListSort] = useState<"date" | "name">("date");
+  const [listSortDirection, setListSortDirection] = useState<"asc" | "desc">("desc");
   const [activeListPlace, setActiveListPlace] = useState<Place | null>(null);
+  const [hoveredListPlace, setHoveredListPlace] = useState<Place | null>(null);
   const [connectorLine, setConnectorLine] = useState<ConnectorLine | null>(null);
   const [online, setOnline] = useState(false);
 
@@ -293,8 +297,19 @@ export default function Home() {
     ].join(" "));
     return searchTokens.every((token) => haystack.includes(token));
   }), [places, searchTokens, selectedCategories, selectedCountries, topOnly]);
-  const sortedVisiblePlaces = useMemo(() => [...visiblePlaces].sort((a, b) =>
-    (b.clipDate || "").localeCompare(a.clipDate || "") || b.id - a.id), [visiblePlaces]);
+  const listPlaces = useMemo(() => {
+    const items = visiblePlaces.filter((place) => !listTopOnly || place.top);
+    return items.sort((a, b) => {
+      if (listSort === "name") {
+        const comparison = (a.name || "Névtelen klip").localeCompare(b.name || "Névtelen klip", "hu", { sensitivity: "base" });
+        return (listSortDirection === "asc" ? comparison : -comparison) || b.id - a.id;
+      }
+      if (Boolean(a.clipDate) !== Boolean(b.clipDate)) return a.clipDate ? -1 : 1;
+      const comparison = (a.clipDate || "").localeCompare(b.clipDate || "");
+      return (listSortDirection === "asc" ? comparison : -comparison) || b.id - a.id;
+    });
+  }, [listSort, listSortDirection, listTopOnly, visiblePlaces]);
+  const connectorPlace = hoveredListPlace ?? activeListPlace;
 
   useEffect(() => {
     let active = true;
@@ -497,17 +512,20 @@ export default function Home() {
   }, [mapReady, searchTokens.length, visiblePlaces]);
 
   useEffect(() => {
-    if (activeListPlace && !visiblePlaces.some((place) => place.id === activeListPlace.id)) {
+    if (activeListPlace && !listPlaces.some((place) => place.id === activeListPlace.id)) {
       setActiveListPlace(null);
       setConnectorLine(null);
     }
-  }, [activeListPlace, visiblePlaces]);
+    if (hoveredListPlace && !listPlaces.some((place) => place.id === hoveredListPlace.id)) {
+      setHoveredListPlace(null);
+    }
+  }, [activeListPlace, hoveredListPlace, listPlaces]);
 
   useEffect(() => {
     const map = mapRef.current;
     const panel = listPanelRef.current;
     const scroll = listScrollRef.current;
-    if (!mapReady || !map || !listOpen || !activeListPlace || !panel || !scroll) {
+    if (!mapReady || !map || !listOpen || !connectorPlace || !panel || !scroll) {
       setConnectorLine(null);
       return;
     }
@@ -515,20 +533,23 @@ export default function Home() {
     const updateConnector = () => {
       window.cancelAnimationFrame(animationFrame);
       animationFrame = window.requestAnimationFrame(() => {
-        const row = listRowRefs.current.get(activeListPlace.id);
+        const row = listRowRefs.current.get(connectorPlace.id);
         if (!row) return setConnectorLine(null);
         const rowRect = row.getBoundingClientRect();
         const scrollRect = scroll.getBoundingClientRect();
         if (rowRect.bottom < scrollRect.top || rowRect.top > scrollRect.bottom) return setConnectorLine(null);
         const mapRect = map.getContainer().getBoundingClientRect();
-        const projected = map.project([activeListPlace.longitude, activeListPlace.latitude]);
+        const projected = map.project([connectorPlace.longitude, connectorPlace.latitude]);
         const left = rowRect.right - 3;
         const top = rowRect.top + rowRect.height / 2;
         const endX = mapRect.left + projected.x;
         const endY = mapRect.top + projected.y;
         const deltaX = endX - left;
         const deltaY = endY - top;
-        setConnectorLine({ left, top, width: Math.hypot(deltaX, deltaY), angle: Math.atan2(deltaY, deltaX) * 180 / Math.PI });
+        setConnectorLine({
+          left, top, width: Math.hypot(deltaX, deltaY), angle: Math.atan2(deltaY, deltaX) * 180 / Math.PI,
+          preview: Boolean(hoveredListPlace && hoveredListPlace.id !== activeListPlace?.id),
+        });
       });
     };
     updateConnector();
@@ -543,7 +564,14 @@ export default function Home() {
       scroll.removeEventListener("scroll", updateConnector);
       window.removeEventListener("resize", updateConnector);
     };
-  }, [activeListPlace, listOpen, mapReady]);
+  }, [activeListPlace, connectorPlace, hoveredListPlace, listOpen, mapReady]);
+
+  useEffect(() => {
+    if (!listOpen) return;
+    const close = (event: KeyboardEvent) => event.key === "Escape" && setListOpen(false);
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [listOpen]);
 
   useEffect(() => {
     if (!selected) return;
@@ -575,13 +603,21 @@ export default function Home() {
   };
 
   const focusListPlace = (place: Place) => {
-    if (!place.clipUrl) return;
     setActiveListPlace(place);
     const map = mapRef.current;
     if (!map) return;
     map.stop();
     const panelWidth = listPanelRef.current?.getBoundingClientRect().width ?? 0;
     map.easeTo({ center: [place.longitude, place.latitude], zoom: 15, offset: [panelWidth / 2, 0], duration: 720 });
+  };
+
+  const toggleListSort = (nextSort: "date" | "name") => {
+    if (nextSort === listSort) {
+      setListSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+    } else {
+      setListSort(nextSort);
+      setListSortDirection(nextSort === "date" ? "desc" : "asc");
+    }
   };
   const parent = typeof window === "undefined" ? "localhost" : window.location.hostname;
   const clipId = selected ? getClipId(selected.clipUrl) : "";
@@ -681,15 +717,34 @@ export default function Home() {
         )}
       </div>
 
+      {listOpen && <button className="clip-list-dismiss" type="button" onClick={() => setListOpen(false)} aria-label="Lista bezárása" />}
       <div className={`clip-list-shell ${listOpen ? "open" : ""}`}>
         <aside className="clip-list-panel" ref={listPanelRef} aria-label="Kliplista">
-          <div className="clip-list-heading"><h2>Lista</h2><small>{sortedVisiblePlaces.length} klip</small></div>
+          <div className="clip-list-heading">
+            <div className="clip-list-titlebar"><h2>Lista</h2><small>{listPlaces.length} klip</small></div>
+            <div className="clip-list-toolbar">
+              <button type="button" className={`list-top-toggle ${listTopOnly ? "active" : ""}`}
+                aria-pressed={listTopOnly} onClick={() => setListTopOnly((onlyTop) => !onlyTop)}>
+                <span aria-hidden="true"><i /></span>TOP
+              </button>
+              <div className="list-sort" aria-label="Lista sorrendje">
+                {(["date", "name"] as const).map((sort) => (
+                  <button key={sort} type="button" className={listSort === sort ? "active" : ""}
+                    aria-pressed={listSort === sort} onClick={() => toggleListSort(sort)}>
+                    {sort === "date" ? "Dátum" : "Név"}
+                    {listSort === sort && <span aria-hidden="true">{listSortDirection === "asc" ? "↑" : "↓"}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <div className="clip-list-scroll" ref={listScrollRef}>
-            {sortedVisiblePlaces.length ? sortedVisiblePlaces.map((place) => (
-              <button key={place.id} type="button" disabled={!place.clipUrl}
+            {listPlaces.length ? listPlaces.map((place) => (
+              <button key={place.id} type="button"
                 ref={(element) => { if (element) listRowRefs.current.set(place.id, element); else listRowRefs.current.delete(place.id); }}
-                className={`clip-list-row ${activeListPlace?.id === place.id ? "active" : ""}`}
-                onClick={() => focusListPlace(place)}>
+                className={`clip-list-row ${!place.clipUrl ? "inactive" : ""} ${activeListPlace?.id === place.id ? "active" : ""}`}
+                onMouseEnter={() => setHoveredListPlace(place)} onMouseLeave={() => setHoveredListPlace(null)}
+                onClick={() => focusListPlace(place)} title={!place.clipUrl ? "Ehhez a helyhez nincs lejátszható klip" : undefined}>
                 {place.top && <span className="list-top-badge">TOP</span>}
                 <span className="clip-list-title">{place.name || "Névtelen klip"}</span>
                 {place.clipDate && <time dateTime={place.clipDate}>{place.clipDate.replaceAll("-", "/")}</time>}
@@ -702,7 +757,7 @@ export default function Home() {
           <span aria-hidden="true">›</span><b>Lista</b>
         </button>
       </div>
-      {connectorLine && <div className="clip-connector" aria-hidden="true" style={{
+      {connectorLine && <div className={`clip-connector ${connectorLine.preview ? "preview" : ""}`} aria-hidden="true" style={{
         left: connectorLine.left, top: connectorLine.top, width: connectorLine.width,
         transform: `rotate(${connectorLine.angle}deg)`,
       }} />}

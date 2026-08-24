@@ -100,29 +100,46 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
 .filter-options small { color: var(--muted); font-size: inherit; }
 .filter-options .select-all-option { grid-column: 1 / -1; width: 100%; margin-bottom: 2px; border-bottom: 1px solid var(--line); border-radius: 8px 8px 3px 3px; color: #eadcfa; font-weight: 750; }
 
-.clip-list-shell { position: fixed; z-index: 1040; top: 0; left: 0; width: clamp(330px, 30vw, 520px); height: 100dvh; pointer-events: none; transform: translateX(-100%); transition: transform .3s cubic-bezier(.22, .75, .22, 1); }
+.clip-list-dismiss { position: fixed; z-index: 990; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; cursor: default; }
+.clip-list-shell { position: fixed; z-index: 1040; top: 74px; bottom: 14px; left: 0; width: clamp(350px, 30vw, 520px); pointer-events: none; transform: translateX(-100%); transition: transform .3s cubic-bezier(.22, .75, .22, 1); }
 .clip-list-shell.open { transform: translateX(0); }
-.clip-list-panel { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; pointer-events: auto; border-right: 1px solid rgba(201, 115, 255, .24); background: linear-gradient(180deg, rgba(8, 15, 25, .985), rgba(6, 14, 21, .97)); box-shadow: 22px 0 70px rgba(0, 0, 0, .42); backdrop-filter: blur(22px); }
-.clip-list-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; min-height: 78px; padding: 26px 22px 15px; border-bottom: 1px solid var(--line); }
+.clip-list-panel { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; pointer-events: auto; border: 1px solid rgba(201, 115, 255, .24); border-left: 0; border-radius: 0 16px 16px 0; background: linear-gradient(180deg, rgba(8, 15, 25, .985), rgba(6, 14, 21, .97)); box-shadow: 22px 0 70px rgba(0, 0, 0, .42); backdrop-filter: blur(22px); }
+.clip-list-heading { display: grid; gap: 12px; padding: 15px 15px 12px 20px; border-bottom: 1px solid var(--line); }
+.clip-list-titlebar { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .clip-list-heading h2 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
 .clip-list-heading small { color: #849ba4; font-size: 11px; }
+.clip-list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.list-top-toggle, .list-sort button { min-height: 29px; border: 1px solid rgba(159, 199, 205, .14); border-radius: 8px; background: rgba(255, 255, 255, .025); color: #93a6ae; cursor: pointer; font-size: 10px; font-weight: 750; }
+.list-top-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0 9px; letter-spacing: .08em; }
+.list-top-toggle > span { position: relative; width: 23px; height: 13px; border-radius: 999px; background: #26343a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); transition: background .18s ease; }
+.list-top-toggle i { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: #83959c; transition: transform .18s ease, background .18s ease; }
+.list-top-toggle.active { border-color: rgba(202, 111, 255, .33); color: #efc8ff; background: rgba(125, 42, 169, .16); }
+.list-top-toggle.active > span { background: rgba(168, 67, 220, .5); }
+.list-top-toggle.active i { transform: translateX(10px); background: #e4a1ff; box-shadow: 0 0 7px rgba(210, 112, 255, .7); }
+.list-sort { display: inline-flex; align-items: center; padding: 2px; border: 1px solid rgba(159, 199, 205, .12); border-radius: 9px; background: rgba(1, 8, 13, .28); }
+.list-sort button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 59px; padding: 0 8px; border: 0; background: transparent; }
+.list-sort button:hover { color: #dce8eb; }
+.list-sort button.active { background: rgba(192, 92, 255, .15); color: #efcaff; }
+.list-sort button span { color: #d979ff; font-size: 12px; line-height: 1; }
 .clip-list-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 9px 18px; scrollbar-color: rgba(192, 92, 255, .42) transparent; scrollbar-width: thin; }
 .clip-list-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; color: #dce8eb; text-align: left; cursor: pointer; transition: color .15s ease, background .15s ease; }
 .clip-list-row:hover, .clip-list-row.active { background: linear-gradient(90deg, rgba(192, 92, 255, .16), rgba(192, 92, 255, .04)); color: #fff; }
 .clip-list-row.active { box-shadow: inset 2px 0 #c05cff; }
-.clip-list-row:disabled { color: #667980; cursor: default; opacity: .62; }
-.clip-list-row:disabled:hover { background: transparent; }
+.clip-list-row.inactive { color: #6f8289; opacity: .72; }
+.clip-list-row.inactive:hover, .clip-list-row.inactive.active { background: linear-gradient(90deg, rgba(124, 146, 153, .13), rgba(124, 146, 153, .025)); color: #9eb0b6; }
 .list-top-badge { flex: 0 0 auto; padding: 2px 5px; border: 1px solid rgba(225, 148, 255, .35); border-radius: 5px; background: rgba(130, 45, 174, .24); color: #edbaff; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
 .clip-list-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .clip-list-row time { flex: 0 0 auto; color: #667b84; font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .clip-list-empty { margin: 22px 12px; color: #7f959e; font-size: 12px; text-align: center; }
-.clip-list-toggle { position: absolute; left: 100%; top: 50%; display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 12px 0 10px; pointer-events: auto; transform: translateY(-50%); border: 1px solid rgba(195, 114, 238, .27); border-left: 0; border-radius: 0 11px 11px 0; background: rgba(8, 20, 28, .93); color: #e6eff2; box-shadow: 12px 10px 35px rgba(0, 0, 0, .3); backdrop-filter: blur(16px); cursor: pointer; }
+.clip-list-toggle { position: absolute; left: 100%; top: 8px; display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 12px 0 9px; pointer-events: auto; border: 1px solid rgba(195, 114, 238, .27); border-left: 0; border-radius: 0 11px 11px 0; background: rgba(8, 20, 28, .93); color: #e6eff2; box-shadow: 12px 10px 35px rgba(0, 0, 0, .3); backdrop-filter: blur(16px); cursor: pointer; }
 .clip-list-toggle:hover { border-color: rgba(213, 130, 255, .54); background: rgba(27, 17, 41, .95); }
-.clip-list-toggle span { color: #cf7cff; font-size: 23px; font-weight: 400; line-height: 1; transition: transform .3s ease; }
+.clip-list-toggle span { display: grid; place-items: center; width: 16px; height: 16px; color: #cf7cff; font-size: 20px; font-weight: 400; line-height: 0; transform: translateY(-.5px); transition: transform .3s ease; }
 .clip-list-shell.open .clip-list-toggle span { transform: rotate(180deg); }
-.clip-list-toggle b { font-size: 11px; }
+.clip-list-toggle b { display: block; font-size: 11px; line-height: 1; }
 .clip-connector { position: fixed; z-index: 900; height: 2px; pointer-events: none; transform-origin: 0 50%; border-radius: 999px; background: linear-gradient(90deg, rgba(192, 92, 255, .55), rgba(216, 132, 255, .95)); box-shadow: 0 0 9px rgba(192, 92, 255, .42); }
+.clip-connector.preview { height: 1px; opacity: .5; box-shadow: 0 0 6px rgba(192, 92, 255, .22); }
 .clip-connector::after { content: ""; position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #d276ff; box-shadow: 0 0 0 3px rgba(192, 92, 255, .16), 0 0 13px rgba(192, 92, 255, .75); }
+.clip-connector.preview::after { right: -3px; top: -2.5px; width: 6px; height: 6px; box-shadow: 0 0 7px rgba(192, 92, 255, .5); }
 
 .maplibregl-ctrl-bottom-right { right: 14px; bottom: 26px; }
 .maplibregl-ctrl-group { overflow: hidden; border: 1px solid var(--line) !important; border-radius: 8px !important; background: rgba(8, 20, 28, .9) !important; box-shadow: none !important; }
@@ -161,8 +178,8 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
   .filter-button { min-height: 36px; padding: 0 11px; font-size: 0; }
   .filter-icon { width: 18px; }
   .filters-panel { top: 44px; }
-  .clip-list-shell { width: min(86vw, 420px); }
-  .clip-list-heading { min-height: 64px; padding: 18px 16px 12px; }
+  .clip-list-shell { top: 106px; bottom: 10px; width: min(86vw, 420px); }
+  .clip-list-heading { padding: 14px 13px 11px 16px; }
 }
 
 @media (max-width: 520px) {
@@ -171,6 +188,11 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
   .filter-area { top: 92px; right: 12px; }
   .search-box { width: calc(100vw - 76px); }
   .filter-options, .filter-options.single-option { grid-template-columns: max-content; }
+  .clip-list-shell { top: 126px; }
+  .clip-list-toolbar { align-items: stretch; flex-direction: column; }
+  .list-top-toggle { justify-content: center; }
+  .list-sort { width: 100%; }
+  .list-sort button { flex: 1; }
   .modal-backdrop { padding: 10px; }
   .clip-modal { max-height: calc(100dvh - 20px); padding: 12px; border-radius: 15px; }
   .modal-heading { gap: 12px; padding: 2px 2px 11px; }
@@ -179,7 +201,7 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
   <style>
     .filters-panel,.filter-dismiss,.modal-backdrop{display:none}
     .filters-panel.open{display:block}.filter-dismiss.open{display:block}.modal-backdrop.open{display:grid}
-    .live-button[hidden],.search-clear[hidden],.top-badge[hidden],.search-suggestions[hidden]{display:none}
+    .live-button[hidden],.search-clear[hidden],.top-badge[hidden],.search-suggestions[hidden],.clip-list-dismiss[hidden]{display:none}
   </style>
 </head>
 <body>
@@ -218,9 +240,19 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
       </section>
     </div>
 
+    <button class="clip-list-dismiss" id="clip-list-dismiss" type="button" aria-label="Lista bezárása" hidden></button>
     <div class="clip-list-shell" id="clip-list-shell">
       <aside class="clip-list-panel" id="clip-list-panel" aria-label="Kliplista">
-        <div class="clip-list-heading"><h2>Lista</h2><small id="clip-list-count"></small></div>
+        <div class="clip-list-heading">
+          <div class="clip-list-titlebar"><h2>Lista</h2><small id="clip-list-count"></small></div>
+          <div class="clip-list-toolbar">
+            <button class="list-top-toggle" id="list-top-toggle" type="button" aria-pressed="false"><span aria-hidden="true"><i></i></span>TOP</button>
+            <div class="list-sort" aria-label="Lista sorrendje">
+              <button class="active" id="list-sort-date" type="button" aria-pressed="true">Dátum <span aria-hidden="true">↓</span></button>
+              <button id="list-sort-name" type="button" aria-pressed="false">Név <span aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
         <div class="clip-list-scroll" id="clip-list-scroll"></div>
       </aside>
       <button class="clip-list-toggle" id="clip-list-toggle" type="button" aria-expanded="false" aria-label="Lista megnyitása"><span aria-hidden="true">›</span><b>Lista</b></button>
@@ -257,7 +289,7 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
     const categoryCounts=countValues(places.map(place=>place.category)),countryCounts=countValues(places.map(place=>place.country));
     const selectedCategories=new Set(categories),selectedCountries=new Set(countries);
     const suggestionIndex=buildSearchSuggestions();
-    let topOnly=false,searchQuery="",searchFocused=false,suggestionCursor=0,searchOrigin=null,activeListPlace=null,currentVisible=[];
+    let topOnly=false,searchQuery="",searchFocused=false,suggestionCursor=0,searchOrigin=null,activeListPlace=null,hoveredListPlace=null,listTopOnly=false,listSort="date",listSortDirection="desc",currentVisible=[];
     function addFilterOptions(type,values,counts){const container=document.getElementById(type+"-options");values.forEach(value=>{const label=document.createElement("label"),input=document.createElement("input"),span=document.createElement("span"),small=document.createElement("small");input.type="checkbox";input.dataset.filter=type;input.value=value;input.checked=true;span.append(document.createTextNode((type==="country"?countryName(value):value)+" "));small.textContent="("+counts[value]+")";span.append(small);label.append(input,span);container.append(label)})}
     addFilterOptions("category",categories,categoryCounts);addFilterOptions("country",countries,countryCounts);document.getElementById("top-count").textContent="("+places.filter(place=>place.top).length+")";
 
@@ -298,12 +330,15 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
     const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge");
     function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren();document.body.classList.remove("modal-open")}
     function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
-    const listShell=document.getElementById("clip-list-shell"),listPanel=document.getElementById("clip-list-panel"),listScroll=document.getElementById("clip-list-scroll"),listToggle=document.getElementById("clip-list-toggle"),listCount=document.getElementById("clip-list-count"),connector=document.getElementById("clip-connector");
-    function setListOpen(open){listShell.classList.toggle("open",open);listToggle.setAttribute("aria-expanded",String(open));listToggle.setAttribute("aria-label",open?"Lista bezárása":"Lista megnyitása");if(open)requestAnimationFrame(updateConnector);else connector.hidden=true}
-    function focusListPlace(place){if(!place.clipUrl)return;activeListPlace=place;renderClipList(currentVisible);map.stop();map.easeTo({center:[place.longitude,place.latitude],zoom:15,offset:[listPanel.getBoundingClientRect().width/2,0],duration:720})}
-    function renderClipList(visible){const sorted=[...visible].sort((a,b)=>String(b.clipDate||"").localeCompare(String(a.clipDate||""))||b.id-a.id);listCount.textContent=sorted.length+" klip";listScroll.replaceChildren();if(activeListPlace&&!sorted.some(place=>place.id===activeListPlace.id)){activeListPlace=null;connector.hidden=true}if(!sorted.length){const empty=document.createElement("p");empty.className="clip-list-empty";empty.textContent="Nincs megjeleníthető klip.";listScroll.append(empty);return}sorted.forEach(place=>{const row=document.createElement("button");row.type="button";row.className="clip-list-row"+(activeListPlace&&activeListPlace.id===place.id?" active":"");row.dataset.listId=String(place.id);row.disabled=!place.clipUrl;if(place.top){const badge=document.createElement("span");badge.className="list-top-badge";badge.textContent="TOP";row.append(badge)}const title=document.createElement("span");title.className="clip-list-title";title.textContent=place.name||"Névtelen klip";row.append(title);if(place.clipDate){const time=document.createElement("time");time.dateTime=place.clipDate;time.textContent=String(place.clipDate).replaceAll("-","/");row.append(time)}row.addEventListener("click",()=>focusListPlace(place));listScroll.append(row)});requestAnimationFrame(updateConnector)}
-    function updateConnector(){if(!listShell.classList.contains("open")||!activeListPlace){connector.hidden=true;return}const row=listScroll.querySelector('[data-list-id="'+activeListPlace.id+'"]');if(!row){connector.hidden=true;return}const rowRect=row.getBoundingClientRect(),scrollRect=listScroll.getBoundingClientRect();if(rowRect.bottom<scrollRect.top||rowRect.top>scrollRect.bottom){connector.hidden=true;return}const mapRect=map.getContainer().getBoundingClientRect(),projected=map.project([activeListPlace.longitude,activeListPlace.latitude]),left=rowRect.right-3,top=rowRect.top+rowRect.height/2,endX=mapRect.left+projected.x,endY=mapRect.top+projected.y,deltaX=endX-left,deltaY=endY-top;connector.hidden=false;connector.style.left=left+"px";connector.style.top=top+"px";connector.style.width=Math.hypot(deltaX,deltaY)+"px";connector.style.transform="rotate("+(Math.atan2(deltaY,deltaX)*180/Math.PI)+"deg)"}
-    listToggle.addEventListener("click",()=>setListOpen(!listShell.classList.contains("open")));listScroll.addEventListener("scroll",()=>requestAnimationFrame(updateConnector),{passive:true});map.on("move",()=>requestAnimationFrame(updateConnector));map.on("resize",updateConnector);window.addEventListener("resize",updateConnector);
+    const listShell=document.getElementById("clip-list-shell"),listPanel=document.getElementById("clip-list-panel"),listScroll=document.getElementById("clip-list-scroll"),listToggle=document.getElementById("clip-list-toggle"),listDismiss=document.getElementById("clip-list-dismiss"),listCount=document.getElementById("clip-list-count"),listTopToggle=document.getElementById("list-top-toggle"),listSortDate=document.getElementById("list-sort-date"),listSortName=document.getElementById("list-sort-name"),connector=document.getElementById("clip-connector");
+    function setListOpen(open){listShell.classList.toggle("open",open);listDismiss.hidden=!open;listToggle.setAttribute("aria-expanded",String(open));listToggle.setAttribute("aria-label",open?"Lista bezárása":"Lista megnyitása");if(open)requestAnimationFrame(updateConnector);else{hoveredListPlace=null;connector.hidden=true}}
+    function focusListPlace(place){activeListPlace=place;renderClipList(currentVisible);map.stop();map.easeTo({center:[place.longitude,place.latitude],zoom:15,offset:[listPanel.getBoundingClientRect().width/2,0],duration:720})}
+    function orderedListPlaces(visible){const items=visible.filter(place=>!listTopOnly||place.top);return items.sort((a,b)=>{if(listSort==="name"){const comparison=String(a.name||"Névtelen klip").localeCompare(String(b.name||"Névtelen klip"),"hu",{sensitivity:"base"});return(listSortDirection==="asc"?comparison:-comparison)||b.id-a.id}if(Boolean(a.clipDate)!==Boolean(b.clipDate))return a.clipDate?-1:1;const comparison=String(a.clipDate||"").localeCompare(String(b.clipDate||""));return(listSortDirection==="asc"?comparison:-comparison)||b.id-a.id})}
+    function renderClipList(visible){const sorted=orderedListPlaces(visible);listCount.textContent=sorted.length+" klip";listScroll.replaceChildren();if(activeListPlace&&!sorted.some(place=>place.id===activeListPlace.id))activeListPlace=null;if(hoveredListPlace&&!sorted.some(place=>place.id===hoveredListPlace.id))hoveredListPlace=null;if(!sorted.length){connector.hidden=true;const empty=document.createElement("p");empty.className="clip-list-empty";empty.textContent="Nincs megjeleníthető klip.";listScroll.append(empty);return}sorted.forEach(place=>{const row=document.createElement("button");row.type="button";row.className="clip-list-row"+(!place.clipUrl?" inactive":"")+(activeListPlace&&activeListPlace.id===place.id?" active":"");row.dataset.listId=String(place.id);if(!place.clipUrl)row.title="Ehhez a helyhez nincs lejátszható klip";if(place.top){const badge=document.createElement("span");badge.className="list-top-badge";badge.textContent="TOP";row.append(badge)}const title=document.createElement("span");title.className="clip-list-title";title.textContent=place.name||"Névtelen klip";row.append(title);if(place.clipDate){const time=document.createElement("time");time.dateTime=place.clipDate;time.textContent=String(place.clipDate).replaceAll("-","/");row.append(time)}row.addEventListener("mouseenter",()=>{hoveredListPlace=place;updateConnector()});row.addEventListener("mouseleave",()=>{hoveredListPlace=null;updateConnector()});row.addEventListener("click",()=>focusListPlace(place));listScroll.append(row)});requestAnimationFrame(updateConnector)}
+    function updateConnector(){const place=hoveredListPlace||activeListPlace;if(!listShell.classList.contains("open")||!place){connector.hidden=true;return}const row=listScroll.querySelector('[data-list-id="'+place.id+'"]');if(!row){connector.hidden=true;return}const rowRect=row.getBoundingClientRect(),scrollRect=listScroll.getBoundingClientRect();if(rowRect.bottom<scrollRect.top||rowRect.top>scrollRect.bottom){connector.hidden=true;return}const mapRect=map.getContainer().getBoundingClientRect(),projected=map.project([place.longitude,place.latitude]),left=rowRect.right-3,top=rowRect.top+rowRect.height/2,endX=mapRect.left+projected.x,endY=mapRect.top+projected.y,deltaX=endX-left,deltaY=endY-top;connector.hidden=false;connector.classList.toggle("preview",Boolean(hoveredListPlace&&(!activeListPlace||hoveredListPlace.id!==activeListPlace.id)));connector.style.left=left+"px";connector.style.top=top+"px";connector.style.width=Math.hypot(deltaX,deltaY)+"px";connector.style.transform="rotate("+(Math.atan2(deltaY,deltaX)*180/Math.PI)+"deg)"}
+    function updateListSortControls(){[[listSortDate,"date"],[listSortName,"name"]].forEach(([button,sort])=>{const active=listSort===sort;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));button.querySelector("span").textContent=active?(listSortDirection==="asc"?"↑":"↓"):""})}
+    function toggleListSort(nextSort){if(listSort===nextSort)listSortDirection=listSortDirection==="asc"?"desc":"asc";else{listSort=nextSort;listSortDirection=nextSort==="date"?"desc":"asc"}updateListSortControls();renderClipList(currentVisible)}
+    listToggle.addEventListener("click",()=>setListOpen(!listShell.classList.contains("open")));listDismiss.addEventListener("click",()=>setListOpen(false));listTopToggle.addEventListener("click",()=>{listTopOnly=!listTopOnly;listTopToggle.classList.toggle("active",listTopOnly);listTopToggle.setAttribute("aria-pressed",String(listTopOnly));renderClipList(currentVisible)});listSortDate.addEventListener("click",()=>toggleListSort("date"));listSortName.addEventListener("click",()=>toggleListSort("name"));listScroll.addEventListener("scroll",()=>requestAnimationFrame(updateConnector),{passive:true});map.on("move",()=>requestAnimationFrame(updateConnector));map.on("resize",updateConnector);window.addEventListener("resize",updateConnector);
     let fitTimer=0;
     function fitVisible(visible,tokens,initial=false){clearTimeout(fitTimer);if(!visible.length){map.stop();if(tokens.length&&searchOrigin)map.easeTo({center:searchOrigin.center,zoom:searchOrigin.zoom,duration:350});return}fitTimer=setTimeout(()=>{if(visible.length===1)map.easeTo({center:[visible[0].longitude,visible[0].latitude],zoom:14,duration:initial?0:650});else{const west=Math.min(...visible.map(place=>place.longitude)),east=Math.max(...visible.map(place=>place.longitude)),south=Math.min(...visible.map(place=>place.latitude)),north=Math.max(...visible.map(place=>place.latitude)),maxZoom=visible.length<=4?13:visible.length<=20?11:7;map.fitBounds([[west,south],[east,north]],{padding:54,maxZoom,duration:initial?0:650})}},initial?0:tokens.length?260:0)}
     function renderMarkers(initial=false){const tokens=normalizeSearch(searchQuery).split(/\s+/).filter(Boolean);const visible=places.filter(place=>{if(!selectedCategories.has(place.category)||!selectedCountries.has(place.country)||topOnly&&!place.top)return false;if(!tokens.length)return true;const haystack=normalizeSearch([place.keywords,place.sourceKeywords,place.category,place.name,place.twitchTitle,place.twitchCategory,place.twitchKeywords,place.country,countryName(place.country)].join(" "));return tokens.every(token=>haystack.includes(token))});currentVisible=visible;document.getElementById("map").dataset.visibleCount=String(visible.length);renderClipList(visible);if(mapReady&&!initial)map.getSource("clips").setData(placesToGeoJson(visible));fitVisible(visible,tokens,initial)}
@@ -321,7 +356,7 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
     function chooseSuggestion(suggestion){updateSearch(suggestion.label);searchFocused=false;renderSearchSuggestions();searchInput.blur()}
     searchInput.addEventListener("input",()=>updateSearch());searchInput.addEventListener("focus",()=>{searchFocused=true;renderSearchSuggestions()});searchInput.addEventListener("blur",()=>setTimeout(()=>{searchFocused=false;renderSearchSuggestions()},120));searchInput.addEventListener("keydown",event=>{const suggestions=rankedSuggestions(searchQuery);if(event.key==="ArrowDown"&&suggestions.length){event.preventDefault();suggestionCursor=(suggestionCursor+1)%suggestions.length;renderSearchSuggestions()}else if(event.key==="ArrowUp"&&suggestions.length){event.preventDefault();suggestionCursor=(suggestionCursor-1+suggestions.length)%suggestions.length;renderSearchSuggestions()}else if(event.key==="Enter"&&suggestions[suggestionCursor]){event.preventDefault();chooseSuggestion(suggestions[suggestionCursor])}else if(event.key==="Escape"){searchFocused=false;renderSearchSuggestions()}});searchClear.addEventListener("click",()=>{updateSearch("");searchInput.focus()});
     document.getElementById("close-button").addEventListener("click",closeModal);document.getElementById("modal-dismiss").addEventListener("click",closeModal);
-    document.addEventListener("keydown",event=>{if(event.key==="Escape"){closeModal();setFiltersOpen(false)}});
+    document.addEventListener("keydown",event=>{if(event.key==="Escape"){closeModal();setFiltersOpen(false);setListOpen(false)}});
   </script>
 </body>
 </html>
