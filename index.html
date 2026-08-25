@@ -120,6 +120,7 @@
     setTimeout(()=>fetch("https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{}),1600);
 
     const map=new maplibregl.Map({container:"map",style:{"version":8,"sources":{"dark-base":{"type":"raster","tileSize":256,"maxzoom":20,"tiles":["https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png"],"attribution":"&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> &copy; <a href=\"https://carto.com/attributions\">CARTO</a>"},"english-labels":{"type":"raster","tileSize":256,"maxzoom":16,"tiles":["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"],"attribution":"&copy; Esri"}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#071118"}},{"id":"dark-base","type":"raster","source":"dark-base","paint":{"raster-fade-duration":120}},{"id":"english-labels","type":"raster","source":"english-labels","paint":{"raster-fade-duration":120,"raster-opacity":0.94}}]},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0,maxTileCacheZoomLevels:8,cancelPendingTileRequestsWhileZooming:false});
+    map.setMissingStyleImageResolver(id=>{const match=/^cluster-([0-9]+)$/.exec(id);if(!match||map.hasImage(id))return;const icon=makeClusterIcon(Number(match[1]));if(icon)map.addImage(id,icon,{pixelRatio:2})});
     map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
     map.addControl(new maplibregl.AttributionControl({compact:true}),"bottom-left");
 
@@ -137,7 +138,7 @@
 
     let mapReady=false;
     map.on("load",()=>{
-      map.on("styleimagemissing",event=>{const match=/^cluster-(d+)$/.exec(event.id);if(!match||map.hasImage(event.id))return;const icon=makeClusterIcon(Number(match[1]));if(icon)map.addImage(event.id,icon,{pixelRatio:2})});addTopStar();
+      addTopStar();
       map.addSource("clips",{type:"geojson",data:placesToGeoJson(places),cluster:true,clusterMaxZoom:14,clusterRadius:32});
       map.addSource("active-clip",{type:"geojson",data:placesToGeoJson([])});
       map.addLayer({id:"clip-clusters",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"icon-image":["concat","cluster-",["to-string",["get","point_count"]]],"icon-allow-overlap":true}});

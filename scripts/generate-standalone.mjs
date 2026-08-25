@@ -195,6 +195,7 @@ const html = `<!doctype html>
     setTimeout(()=>fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{}),1600);
 
     const map=new maplibregl.Map({container:"map",style:${JSON.stringify(MAP_STYLE)},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0,maxTileCacheZoomLevels:8,cancelPendingTileRequestsWhileZooming:false});
+    map.setMissingStyleImageResolver(id=>{const match=/^cluster-([0-9]+)$/.exec(id);if(!match||map.hasImage(id))return;const icon=makeClusterIcon(Number(match[1]));if(icon)map.addImage(id,icon,{pixelRatio:2})});
     map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
     map.addControl(new maplibregl.AttributionControl({compact:true}),"bottom-left");
 
@@ -212,7 +213,7 @@ const html = `<!doctype html>
 
     let mapReady=false;
     map.on("load",()=>{
-      map.on("styleimagemissing",event=>{const match=/^cluster-(\d+)$/.exec(event.id);if(!match||map.hasImage(event.id))return;const icon=makeClusterIcon(Number(match[1]));if(icon)map.addImage(event.id,icon,{pixelRatio:2})});addTopStar();
+      addTopStar();
       map.addSource("clips",{type:"geojson",data:placesToGeoJson(places),cluster:true,clusterMaxZoom:14,clusterRadius:32});
       map.addSource("active-clip",{type:"geojson",data:placesToGeoJson([])});
       map.addLayer({id:"clip-clusters",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"icon-image":["concat","cluster-",["to-string",["get","point_count"]]],"icon-allow-overlap":true}});

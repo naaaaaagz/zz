@@ -392,6 +392,12 @@ export default function Home() {
         cancelPendingTileRequestsWhileZooming: false,
       });
       mapRef.current = map;
+      map.setMissingStyleImageResolver((id) => {
+        const match = /^cluster-([0-9]+)$/.exec(id);
+        if (!match || map.hasImage(id)) return;
+        const icon = makeClusterIcon(Number(match[1]));
+        if (icon) map.addImage(id, icon, { pixelRatio: 2 });
+      });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
@@ -434,12 +440,6 @@ export default function Home() {
         if (cancelled) return;
         mapLoadingRef.current?.classList.remove("visible");
 
-        map.on("styleimagemissing", (event) => {
-          const match = /^cluster-(\d+)$/.exec(event.id);
-          if (!match || map.hasImage(event.id)) return;
-          const icon = makeClusterIcon(Number(match[1]));
-          if (icon) map.addImage(event.id, icon, { pixelRatio: 2 });
-        });
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
         map.addSource("clips", {

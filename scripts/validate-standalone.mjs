@@ -12,7 +12,7 @@ const expectedDescription = "ZedTheCyclist bringás streamjeiről a clip-ek, té
 const requiredText = [
   `content="${expectedDescription}"`,
   "clip-source-keywords",
-  "styleimagemissing",
+  "setMissingStyleImageResolver",
   "country-borders-europe.geojson",
   "list-tab-wiggle",
   "maplibre-gl-shared.mjs",
