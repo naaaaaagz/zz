@@ -7,7 +7,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 
 export const metadata: Metadata = {
   title: "ZedTheCyclist clips",
-  description: "Fedezd fel ZedTheCyclist utazásainak több mint 400 emlékezetes pillanatát.",
+  description: "ZedTheCyclist bringás streamjeiről a clip-ek, térképen.",
   keywords: ["zed", "zedthecyclist", "twitch", "streamer", "bicikli", "bringás", "clip", "clips", "clipek", "térkép"],
   manifest: "/site.webmanifest",
   icons: {

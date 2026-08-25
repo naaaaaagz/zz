@@ -27,7 +27,7 @@ const MAP_STYLE: StyleSpecification = {
     { id: "english-labels", type: "raster", source: "english-labels", paint: { "raster-fade-duration": 120, "raster-opacity": 0.94 } },
   ],
 };
-const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
+const COUNTRY_BORDERS_URL = "./country-borders-europe.geojson";
 const COUNTRY_NAMES_HU: Record<string, string> = {
   Austria: "Ausztria",
   Belgium: "Belgium",
@@ -288,6 +288,9 @@ export default function Home() {
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds | null>(null);
   const [connectorLine, setConnectorLine] = useState<ConnectorLine | null>(null);
   const [online, setOnline] = useState(false);
+  const [listAttention, setListAttention] = useState(false);
+  const listAttentionPlayedRef = useRef(false);
+  const listAttentionTimerRef = useRef(0);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
   const countries = useMemo(() => unique(places.map((place) => place.country))
@@ -344,11 +347,35 @@ export default function Home() {
     let active = true;
     const endpoint = window.location.hostname.endsWith("github.io")
       ? "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live" : "/api/live";
-    fetch(endpoint).then((response) => response.ok ? response.json() : { online: false })
-      .then((payload: { online?: boolean }) => { if (active) setOnline(Boolean(payload.online)); })
-      .catch(() => {});
-    return () => { active = false; };
+    const timer = window.setTimeout(() => {
+      fetch(endpoint).then((response) => response.ok ? response.json() : { online: false })
+        .then((payload: { online?: boolean }) => { if (active) setOnline(Boolean(payload.online)); })
+        .catch(() => {});
+    }, 1600);
+    return () => { active = false; window.clearTimeout(timer); };
   }, []);
+
+  useEffect(() => {
+    const scheduleAttention = () => {
+      if (listAttentionPlayedRef.current || listOpen || document.hidden || !document.hasFocus()) return;
+      window.clearTimeout(listAttentionTimerRef.current);
+      listAttentionTimerRef.current = window.setTimeout(() => {
+        if (listOpen || document.hidden || !document.hasFocus()) return;
+        listAttentionPlayedRef.current = true;
+        setListAttention(true);
+        listAttentionTimerRef.current = window.setTimeout(() => setListAttention(false), 1150);
+      }, 1500);
+    };
+    const handleVisibility = () => { if (!document.hidden) scheduleAttention(); };
+    scheduleAttention();
+    window.addEventListener("focus", scheduleAttention);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearTimeout(listAttentionTimerRef.current);
+      window.removeEventListener("focus", scheduleAttention);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [listOpen]);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current || !places.length) return;
@@ -407,10 +434,12 @@ export default function Home() {
         if (cancelled) return;
         mapLoadingRef.current?.classList.remove("visible");
 
-        for (let count = 2; count <= places.length; count += 1) {
-          const icon = makeClusterIcon(count);
-          if (icon) map.addImage(`cluster-${count}`, icon, { pixelRatio: 2 });
-        }
+        map.on("styleimagemissing", (event) => {
+          const match = /^cluster-(\d+)$/.exec(event.id);
+          if (!match || map.hasImage(event.id)) return;
+          const icon = makeClusterIcon(Number(match[1]));
+          if (icon) map.addImage(event.id, icon, { pixelRatio: 2 });
+        });
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
         map.addSource("clips", {
@@ -505,14 +534,18 @@ export default function Home() {
           if (!interactiveFeatures.length) setListOpen(false);
         });
 
-        fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
-          if (cancelled || !geoJson || map.getSource("country-borders")) return;
-          map.addSource("country-borders", { type: "geojson", data: geoJson });
-          map.addLayer({
-            id: "country-borders", type: "line", source: "country-borders",
-            paint: { "line-color": "#86a8b3", "line-width": ["interpolate", ["linear"], ["zoom"], 2, 1.1, 8, 1.6, 14, 2], "line-opacity": 0.68 },
-          }, "clip-clusters");
-        }).catch(() => {});
+        const loadCountryBorders = () => {
+          fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
+            if (cancelled || !geoJson || map.getSource("country-borders")) return;
+            map.addSource("country-borders", { type: "geojson", data: geoJson });
+            map.addLayer({
+              id: "country-borders", type: "line", source: "country-borders",
+              paint: { "line-color": "#86a8b3", "line-width": ["interpolate", ["linear"], ["zoom"], 2, 1.1, 8, 1.6, 14, 2], "line-opacity": 0.68 },
+            }, "clip-clusters");
+          }).catch(() => {});
+        };
+        if ("requestIdleCallback" in window) window.requestIdleCallback(loadCountryBorders, { timeout: 1800 });
+        else window.setTimeout(loadCountryBorders, 900);
 
         setMapReady(true);
         syncViewportBounds();
@@ -830,7 +863,7 @@ export default function Home() {
             )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
           </div>
         </aside>
-        <button className="clip-list-toggle" type="button" onClick={() => setListOpen((open) => !open)}
+        <button className={`clip-list-toggle ${listAttention && !listOpen ? "attention" : ""}`} type="button" onClick={() => setListOpen((open) => !open)}
           aria-expanded={listOpen} aria-label={listOpen ? "Lista bezárása" : "Lista megnyitása"}>
           <span aria-hidden="true">›</span><b>Lista</b>
         </button>
@@ -858,6 +891,7 @@ export default function Home() {
               </div>
             </div>
             <ClipPlayer key={clipId} clipId={clipId} parent={parent} title={selected.twitchTitle || selected.name} />
+            {selected.sourceKeywords && <p className="clip-source-keywords">{selected.sourceKeywords}</p>}
           </section>
         </div>
       )}

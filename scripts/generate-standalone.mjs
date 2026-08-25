@@ -30,10 +30,16 @@ const MAP_STYLE = {
     { id: "english-labels", type: "raster", source: "english-labels", paint: { "raster-fade-duration": 120, "raster-opacity": 0.94 } },
   ],
 };
-const COUNTRY_BORDERS_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson";
+const COUNTRY_BORDERS_URL = "./country-borders-europe.geojson";
 const twitchMetadata = JSON.parse(readFileSync(new URL("../data/twitch-meta.json", import.meta.url), "utf8"));
-const appCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
-  .replace(/^@import\s+"tailwindcss";\s*/u, "");
+const minifyCss = (value) => value
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/\s+/g, " ")
+  .replace(/\s*([{}:;,>])\s*/g, "$1")
+  .trim();
+const appCss = minifyCss(readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
+  .replace(/^@import\s+"tailwindcss";\s*/u, ""));
+const maplibreCss = minifyCss(readFileSync(new URL("../node_modules/maplibre-gl/dist/maplibre-gl.css", import.meta.url), "utf8"));
 
 const cell = (row, index) => row.c?.[index]?.v ?? "";
 const clipId = (url) => String(url).match(/\/clip\/([^/?#]+)/)?.[1] ?? "";
@@ -74,7 +80,7 @@ const html = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071118">
-  <meta name="description" content="Fedezd fel ZedTheCyclist utazásainak több mint 400 emlékezetes pillanatát.">
+  <meta name="description" content="ZedTheCyclist bringás streamjeiről a clip-ek, térképen.">
   <meta name="keywords" content="zed, zedthecyclist, twitch, streamer, bicikli, bringás, clip, clips, clipek, térkép">
   <meta name="msapplication-TileColor" content="#071118">
   <meta name="msapplication-config" content="./browserconfig.xml">
@@ -87,8 +93,9 @@ const html = `<!doctype html>
   <link rel="manifest" href="./site.webmanifest">
   <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
-  <link rel="stylesheet" href="./maplibre-gl.css">
-  <style>${appCss}</style>
+  <link rel="modulepreload" href="./maplibre-gl.mjs">
+  <link rel="modulepreload" href="./maplibre-gl-shared.mjs">
+  <style>${appCss}\n${maplibreCss}</style>
   <style>
     .filters-panel,.filter-dismiss,.modal-backdrop{display:none}
     .filters-panel.open{display:block}.filter-dismiss.open{display:block}.modal-backdrop.open{display:grid}
@@ -161,6 +168,7 @@ const html = `<!doctype html>
           <div class="modal-actions"><span class="top-badge" id="top-badge" hidden>TOP</span><button class="close-button" id="close-button" aria-label="Klip bezárása"><span></span><span></span></button></div>
         </div>
         <div class="player-frame" id="player-frame"></div>
+        <p class="clip-source-keywords" id="clip-source-keywords" hidden></p>
       </section>
     </div>
   </main>
@@ -184,7 +192,7 @@ const html = `<!doctype html>
     function addFilterOptions(type,values,counts){const container=document.getElementById(type+"-options");values.forEach(value=>{const label=document.createElement("label"),input=document.createElement("input"),span=document.createElement("span"),small=document.createElement("small");input.type="checkbox";input.dataset.filter=type;input.value=value;input.checked=true;span.append(document.createTextNode((type==="country"?countryName(value):value)+" "));small.textContent="("+counts[value]+")";span.append(small);label.append(input,span);container.append(label)})}
     addFilterOptions("category",categories,categoryCounts);addFilterOptions("country",countries,countryCounts);document.getElementById("top-count").textContent="("+places.filter(place=>place.top).length+")";
 
-    fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{});
+    setTimeout(()=>fetch("${LIVE_URL}").then(response=>response.ok?response.json():{online:false}).then(payload=>{if(payload.online)document.getElementById("live-button").hidden=false}).catch(()=>{}),1600);
 
     const map=new maplibregl.Map({container:"map",style:${JSON.stringify(MAP_STYLE)},center:[13.9,47.8],zoom:4,minZoom:2,maxZoom:17,attributionControl:false,fadeDuration:0,maxTileCacheZoomLevels:8,cancelPendingTileRequestsWhileZooming:false});
     map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
@@ -200,11 +208,11 @@ const html = `<!doctype html>
 
     function placesToGeoJson(items){return{type:"FeatureCollection",features:items.map(place=>({type:"Feature",id:place.id,geometry:{type:"Point",coordinates:[place.longitude,place.latitude]},properties:{id:place.id,name:place.name||"Névtelen klip",linked:Boolean(place.clipUrl),top:place.top}}))}}
     function addTopStar(){const size=40,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return;const outer=17,inner=7.4,center=size/2;context.beginPath();for(let index=0;index<10;index+=1){const radius=index%2===0?outer:inner,angle=-Math.PI/2+index*Math.PI/5,x=center+Math.cos(angle)*radius,y=center+Math.sin(angle)*radius;index===0?context.moveTo(x,y):context.lineTo(x,y)}context.closePath();const gradient=context.createLinearGradient(8,6,31,34);gradient.addColorStop(0,"#f1a4ff");gradient.addColorStop(.58,"#a64cff");gradient.addColorStop(1,"#7047e8");context.fillStyle=gradient;context.fill();context.lineWidth=2.5;context.strokeStyle="#07141c";context.stroke();map.addImage("top-star",context.getImageData(0,0,size,size),{pixelRatio:2})}
-    function addClusterIcons(){for(let count=2;count<=places.length;count+=1){const displaySize=count>=100?42:count>=10?36:31,scale=2,size=displaySize*scale,center=size/2,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)continue;const gradient=context.createRadialGradient(center*.7,center*.63,1,center,center,center);gradient.addColorStop(0,"#7952b5");gradient.addColorStop(1,"#241c3c");context.beginPath();context.arc(center,center,center-2,0,Math.PI*2);context.fillStyle=gradient;context.fill();context.lineWidth=4;context.strokeStyle="#dc97ff";context.stroke();context.fillStyle="#fff";context.font="850 22px Arial, Helvetica, sans-serif";context.textAlign="center";context.textBaseline="middle";context.fillText(String(count),center,center+.5);map.addImage("cluster-"+count,context.getImageData(0,0,size,size),{pixelRatio:2})}}
+    function makeClusterIcon(count){const displaySize=count>=100?42:count>=10?36:31,scale=2,size=displaySize*scale,center=size/2,canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const context=canvas.getContext("2d");if(!context)return null;const gradient=context.createRadialGradient(center*.7,center*.63,1,center,center,center);gradient.addColorStop(0,"#7952b5");gradient.addColorStop(1,"#241c3c");context.beginPath();context.arc(center,center,center-2,0,Math.PI*2);context.fillStyle=gradient;context.fill();context.lineWidth=4;context.strokeStyle="#dc97ff";context.stroke();context.fillStyle="#fff";context.font="850 22px Arial, Helvetica, sans-serif";context.textAlign="center";context.textBaseline="middle";context.fillText(String(count),center,center+.5);return context.getImageData(0,0,size,size)}
 
     let mapReady=false;
     map.on("load",()=>{
-      addClusterIcons();addTopStar();
+      map.on("styleimagemissing",event=>{const match=/^cluster-(\d+)$/.exec(event.id);if(!match||map.hasImage(event.id))return;const icon=makeClusterIcon(Number(match[1]));if(icon)map.addImage(event.id,icon,{pixelRatio:2})});addTopStar();
       map.addSource("clips",{type:"geojson",data:placesToGeoJson(places),cluster:true,clusterMaxZoom:14,clusterRadius:32});
       map.addSource("active-clip",{type:"geojson",data:placesToGeoJson([])});
       map.addLayer({id:"clip-clusters",type:"symbol",source:"clips",filter:["has","point_count"],layout:{"icon-image":["concat","cluster-",["to-string",["get","point_count"]]],"icon-allow-overlap":true}});
@@ -218,15 +226,18 @@ const html = `<!doctype html>
       map.on("mouseenter","clip-clusters",()=>{map.getCanvas().style.cursor="pointer"});map.on("mouseleave","clip-clusters",()=>{map.getCanvas().style.cursor=""});
       map.on("click","clip-clusters",event=>{const feature=event.features&&event.features[0];if(!feature||feature.geometry.type!=="Point")return;const clusterId=Number(feature.properties.cluster_id),pointCount=Number(feature.properties.point_count||2);map.getSource("clips").getClusterLeaves(clusterId,pointCount,0).then(leaves=>{const coordinates=leaves.filter(leaf=>leaf.geometry.type==="Point").map(leaf=>[Number(leaf.geometry.coordinates[0]),Number(leaf.geometry.coordinates[1])]);if(!coordinates.length)return;const west=Math.min(...coordinates.map(([longitude])=>longitude)),east=Math.max(...coordinates.map(([longitude])=>longitude)),south=Math.min(...coordinates.map(([,latitude])=>latitude)),north=Math.max(...coordinates.map(([,latitude])=>latitude)),container=map.getContainer(),horizontalPadding=Math.max(44,Math.round(container.clientWidth*.08)),verticalPadding=Math.max(44,Math.round(container.clientHeight*.08)),padding={top:verticalPadding,bottom:verticalPadding,left:horizontalPadding,right:horizontalPadding};west===east&&south===north?map.easeTo({center:[west,south],zoom:16,duration:720}):map.fitBounds([[west,south],[east,north]],{padding,maxZoom:16,duration:720})}).catch(()=>{})});
       map.on("click",event=>{const interactiveFeatures=map.queryRenderedFeatures(event.point,{layers:["clip-clusters","clip-points","top-points","active-clip-point","active-top-point"]});if(!interactiveFeatures.length)setListOpen(false)});
-      fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(!geoJson||map.getSource("country-borders"))return;map.addSource("country-borders",{type:"geojson",data:geoJson});map.addLayer({id:"country-borders",type:"line",source:"country-borders",paint:{"line-color":"#86a8b3","line-width":["interpolate",["linear"],["zoom"],2,1.1,8,1.6,14,2],"line-opacity":.68}},"clip-clusters")}).catch(()=>{});
+      const loadCountryBorders=()=>fetch("${COUNTRY_BORDERS_URL}").then(response=>response.ok?response.json():null).then(geoJson=>{if(!geoJson||map.getSource("country-borders"))return;map.addSource("country-borders",{type:"geojson",data:geoJson});map.addLayer({id:"country-borders",type:"line",source:"country-borders",paint:{"line-color":"#86a8b3","line-width":["interpolate",["linear"],["zoom"],2,1.1,8,1.6,14,2],"line-opacity":.68}},"clip-clusters")}).catch(()=>{});"requestIdleCallback" in window?requestIdleCallback(loadCountryBorders,{timeout:1800}):setTimeout(loadCountryBorders,900);
       mapReady=true;syncListViewport();renderMarkers(true);wakeMap();
     });
 
-    const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge");
-    function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren();document.body.classList.remove("modal-open")}
-    function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
+    const backdrop=document.getElementById("modal-backdrop"),player=document.getElementById("player-frame"),clipName=document.getElementById("clip-modal-title"),topBadge=document.getElementById("top-badge"),clipSourceKeywords=document.getElementById("clip-source-keywords");
+    function closeModal(){backdrop.classList.remove("open");backdrop.setAttribute("aria-hidden","true");player.replaceChildren();clipSourceKeywords.textContent="";clipSourceKeywords.hidden=true;document.body.classList.remove("modal-open")}
+    function openClip(place){const id=clipId(place.clipUrl);if(!id)return;clipName.textContent=place.name;topBadge.hidden=!place.top;clipSourceKeywords.textContent=place.sourceKeywords||"";clipSourceKeywords.hidden=!place.sourceKeywords;const iframe=document.createElement("iframe");iframe.title=place.twitchTitle||place.name;iframe.allow="autoplay; fullscreen";iframe.allowFullscreen=true;iframe.src="https://clips.twitch.tv/embed?clip="+encodeURIComponent(id)+"&parent="+encodeURIComponent(location.hostname||"localhost")+"&autoplay=true&muted=false";backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");document.body.classList.add("modal-open");requestAnimationFrame(()=>requestAnimationFrame(()=>player.append(iframe)))}
     const listShell=document.getElementById("clip-list-shell"),listPanel=document.getElementById("clip-list-panel"),listScroll=document.getElementById("clip-list-scroll"),listToggle=document.getElementById("clip-list-toggle"),listCount=document.getElementById("clip-list-count"),listClearButton=document.getElementById("list-clear-button"),listTopToggle=document.getElementById("list-top-toggle"),listSortDate=document.getElementById("list-sort-date"),listSortName=document.getElementById("list-sort-name"),connector=document.getElementById("clip-connector");
-    function setListOpen(open){listShell.classList.toggle("open",open);listToggle.setAttribute("aria-expanded",String(open));listToggle.setAttribute("aria-label",open?"Lista bezárása":"Lista megnyitása");if(open)requestAnimationFrame(updateConnector);else{hoveredListPlace=null;updateHighlightedPoint();connector.hidden=true}}
+    let listAttentionPlayed=false,listAttentionTimer=0;
+    function scheduleListAttention(){if(listAttentionPlayed||document.hidden||!document.hasFocus()||listShell.classList.contains("open"))return;clearTimeout(listAttentionTimer);listAttentionTimer=setTimeout(()=>{if(document.hidden||!document.hasFocus()||listShell.classList.contains("open"))return;listAttentionPlayed=true;listToggle.classList.add("attention");setTimeout(()=>listToggle.classList.remove("attention"),1150)},1500)}
+    window.addEventListener("focus",scheduleListAttention);document.addEventListener("visibilitychange",()=>{if(!document.hidden)scheduleListAttention()});scheduleListAttention();
+    function setListOpen(open){listShell.classList.toggle("open",open);listToggle.setAttribute("aria-expanded",String(open));listToggle.setAttribute("aria-label",open?"Lista bezárása":"Lista megnyitása");if(open){clearTimeout(listAttentionTimer);requestAnimationFrame(updateConnector)}else{hoveredListPlace=null;updateHighlightedPoint();connector.hidden=true;scheduleListAttention()}}
     function focusListPlace(place){activeListPlace=place;renderClipList(currentVisible);map.stop();map.easeTo({center:[place.longitude,place.latitude],zoom:15,offset:[listPanel.getBoundingClientRect().width/2,0],duration:720})}
     function placeIsInViewport(place){if(!viewportBounds)return true;const longitudeVisible=viewportBounds.west<=viewportBounds.east?place.longitude>=viewportBounds.west&&place.longitude<=viewportBounds.east:place.longitude>=viewportBounds.west||place.longitude<=viewportBounds.east;return longitudeVisible&&place.latitude>=viewportBounds.south&&place.latitude<=viewportBounds.north}
     function syncListViewport(){const bounds=map.getBounds();viewportBounds={west:bounds.getWest(),east:bounds.getEast(),south:bounds.getSouth(),north:bounds.getNorth()};if(mapReady)renderClipList(currentVisible)}
@@ -270,5 +281,6 @@ for (const asset of [
   "favicon.ico", "favicon-16x16.png", "favicon-32x32.png", "favicon-48x48.png",
   "apple-touch-icon.png", "android-chrome-192x192.png", "android-chrome-512x512.png",
   "mstile-150x150.png", "site.webmanifest", "browserconfig.xml",
+  "country-borders-europe.geojson",
 ]) copyFileSync(new URL(`../public/${asset}`, import.meta.url), new URL(`../${asset}`, import.meta.url));
 console.log(`Generated index.html with ${places.length} locations, ${topCount} TOP clips and ${countries.length} countries.`);
