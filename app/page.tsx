@@ -264,10 +264,8 @@ export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapLoadingRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const mapWasDraggedRef = useRef(false);
   const searchOriginRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const listPanelRef = useRef<HTMLElement>(null);
-  const listToggleRef = useRef<HTMLButtonElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const listRowRefs = useRef(new Map<number, HTMLButtonElement>());
   const [places, setPlaces] = useState<Place[]>([]);
@@ -371,7 +369,6 @@ export default function Home() {
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
       let prefetchTimer = 0;
-      let clearDraggedTimer = 0;
       const scheduleTilePrefetch = () => {
         window.clearTimeout(prefetchTimer);
         prefetchTimer = window.setTimeout(() => prefetchTileRing(map), 140);
@@ -379,14 +376,6 @@ export default function Home() {
       const syncViewportBounds = () => {
         const bounds = map.getBounds();
         setViewportBounds({ west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth() });
-      };
-      const handleDragStart = () => {
-        window.clearTimeout(clearDraggedTimer);
-        mapWasDraggedRef.current = true;
-      };
-      const handleDragEnd = () => {
-        window.clearTimeout(clearDraggedTimer);
-        clearDraggedTimer = window.setTimeout(() => { mapWasDraggedRef.current = false; }, 0);
       };
       const wakeMap = () => requestAnimationFrame(() => requestAnimationFrame(() => {
         if (cancelled) return;
@@ -402,20 +391,15 @@ export default function Home() {
       document.addEventListener("visibilitychange", handleVisibility);
       map.on("moveend", scheduleTilePrefetch);
       map.on("moveend", syncViewportBounds);
-      map.on("dragstart", handleDragStart);
-      map.on("dragend", handleDragEnd);
       map.on("idle", scheduleTilePrefetch);
       detachMapWakeups = () => {
         window.clearTimeout(prefetchTimer);
-        window.clearTimeout(clearDraggedTimer);
         resizeObserver.disconnect();
         window.removeEventListener("load", wakeMap);
         window.removeEventListener("pageshow", wakeMap);
         document.removeEventListener("visibilitychange", handleVisibility);
         map.off("moveend", scheduleTilePrefetch);
         map.off("moveend", syncViewportBounds);
-        map.off("dragstart", handleDragStart);
-        map.off("dragend", handleDragEnd);
         map.off("idle", scheduleTilePrefetch);
       };
 
@@ -513,6 +497,12 @@ export default function Home() {
               map.fitBounds([[west, south], [east, north]], { padding, maxZoom: 16, duration: 720 });
             }
           }).catch(() => {});
+        });
+        map.on("click", (event) => {
+          const interactiveFeatures = map.queryRenderedFeatures(event.point, {
+            layers: ["clip-clusters", "clip-points", "top-points", "active-clip-point", "active-top-point"],
+          });
+          if (!interactiveFeatures.length) setListOpen(false);
         });
 
         fetch(COUNTRY_BORDERS_URL).then((response) => response.ok ? response.json() : null).then((geoJson) => {
@@ -633,18 +623,8 @@ export default function Home() {
   useEffect(() => {
     if (!listOpen) return;
     const close = (event: KeyboardEvent) => event.key === "Escape" && setListOpen(false);
-    const closeFromOutside = (event: MouseEvent) => {
-      if (mapWasDraggedRef.current) return;
-      const target = event.target as Node | null;
-      if (target && (listPanelRef.current?.contains(target) || listToggleRef.current?.contains(target))) return;
-      setListOpen(false);
-    };
     document.addEventListener("keydown", close);
-    document.addEventListener("click", closeFromOutside, true);
-    return () => {
-      document.removeEventListener("keydown", close);
-      document.removeEventListener("click", closeFromOutside, true);
-    };
+    return () => document.removeEventListener("keydown", close);
   }, [listOpen]);
 
   useEffect(() => {
@@ -850,7 +830,7 @@ export default function Home() {
             )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
           </div>
         </aside>
-        <button className="clip-list-toggle" ref={listToggleRef} type="button" onClick={() => setListOpen((open) => !open)}
+        <button className="clip-list-toggle" type="button" onClick={() => setListOpen((open) => !open)}
           aria-expanded={listOpen} aria-label={listOpen ? "Lista bezárása" : "Lista megnyitása"}>
           <span aria-hidden="true">›</span><b>Lista</b>
         </button>
