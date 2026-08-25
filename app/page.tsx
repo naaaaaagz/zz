@@ -381,7 +381,8 @@ export default function Home() {
     if (!mapContainer.current || mapRef.current || !places.length) return;
     let cancelled = false;
     let detachMapWakeups = () => {};
-    import("maplibre-gl").then(({ default: maplibregl }) => {
+    import("maplibre-gl").then((maplibreModule) => {
+      const maplibregl = maplibreModule.default ?? maplibreModule;
       if (cancelled || !mapContainer.current) return;
       const map = new maplibregl.Map({
         container: mapContainer.current,
