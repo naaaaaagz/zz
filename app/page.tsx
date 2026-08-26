@@ -185,6 +185,43 @@ function placeIsInViewport(place: Place, bounds: ViewportBounds | null) {
   return longitudeVisible && place.latitude >= bounds.south && place.latitude <= bounds.north;
 }
 
+function getMapContentRect(map: MapLibreMap, listOpen: boolean, panel: HTMLElement | null) {
+  const container = map.getContainer();
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (!listOpen || typeof window === "undefined") return { left: 0, top: 0, right: width, bottom: height };
+  const panelRect = panel?.getBoundingClientRect();
+  const mobile = window.matchMedia("(max-width: 520px)").matches;
+  if (mobile) {
+    const panelHeight = panelRect?.height ?? height * 0.58;
+    return { left: 0, top: 0, right: width, bottom: Math.max(80, height - panelHeight - 18) };
+  }
+  const panelWidth = panelRect?.width ?? Math.min(520, Math.max(350, width * 0.3));
+  return { left: Math.min(width - 80, panelWidth + 24), top: 0, right: width, bottom: height };
+}
+
+function placeIsInVisibleMapArea(place: Place, map: MapLibreMap | null, listOpen: boolean, panel: HTMLElement | null) {
+  if (!map) return true;
+  const point = map.project([place.longitude, place.latitude]);
+  const rect = getMapContentRect(map, listOpen, panel);
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function getListAwareMapOptions(map: MapLibreMap, listOpen: boolean, panel: HTMLElement | null, base = 54) {
+  const rect = getMapContentRect(map, listOpen, panel);
+  const width = map.getContainer().clientWidth;
+  const height = map.getContainer().clientHeight;
+  return {
+    offset: [(rect.left + rect.right - width) / 2, (rect.top + rect.bottom - height) / 2] as [number, number],
+    padding: {
+      top: base + rect.top,
+      right: base + width - rect.right,
+      bottom: base + height - rect.bottom,
+      left: base + rect.left,
+    },
+  };
+}
+
 function placesToGeoJson(places: Place[]) {
   return {
     type: "FeatureCollection" as const,
@@ -222,52 +259,26 @@ function makeTopStar() {
   return context.getImageData(0, 0, size, size);
 }
 
-function makeClusterIcon(count: number) {
-  const displaySize = count >= 100 ? 42 : count >= 10 ? 36 : 31;
-  const scale = 2; const size = displaySize * scale; const center = size / 2;
-  const canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-  const gradient = context.createRadialGradient(center * 0.7, center * 0.63, 1, center, center, center);
-  gradient.addColorStop(0, "#7952b5"); gradient.addColorStop(1, "#241c3c");
-  context.beginPath(); context.arc(center, center, center - 2, 0, Math.PI * 2);
-  context.fillStyle = gradient; context.fill();
-  context.lineWidth = 4; context.strokeStyle = "#dc97ff"; context.stroke();
-  context.fillStyle = "#ffffff";
-  context.font = `850 ${22 * scale / 2}px Arial, Helvetica, sans-serif`;
-  context.textAlign = "center"; context.textBaseline = "middle";
-  context.fillText(String(count), center, center + 0.5);
-  return context.getImageData(0, 0, size, size);
-}
-
 function makeTitleLabelBackground() {
-  const width = 40; const height = 30;
+  const width = 40; const height = 36;
   const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.beginPath();
-  context.roundRect(1.5, 1.5, width - 3, height - 3, 8);
-  context.fillStyle = "rgba(11, 27, 36, 0.96)"; context.fill();
-  context.lineWidth = 2; context.strokeStyle = "rgba(192, 92, 255, 0.52)"; context.stroke();
+  context.roundRect(1.5, 1.5, width - 3, 27, 7);
+  context.fillStyle = "rgba(10, 24, 32, 0.82)"; context.fill();
+  context.lineWidth = 1.5; context.strokeStyle = "rgba(192, 92, 255, 0.32)"; context.stroke();
+  context.beginPath(); context.moveTo(16.5, 28); context.lineTo(20, 34); context.lineTo(23.5, 28); context.closePath();
+  context.fillStyle = "rgba(10, 24, 32, 0.82)"; context.fill();
+  context.strokeStyle = "rgba(192, 92, 255, 0.32)"; context.stroke();
   return context.getImageData(0, 0, width, height);
 }
 
 function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string; title: string }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => setReady(true));
-    });
-    return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame); };
-  }, []);
-
   return (
     <div className="player-frame">
-      {ready && (
-        <iframe src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=false`}
-          title={title} allow="autoplay; fullscreen" allowFullScreen />
-      )}
+      <iframe src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=false`}
+        title={title} allow="autoplay; fullscreen" allowFullScreen />
     </div>
   );
 }
@@ -299,12 +310,13 @@ export default function Home() {
   const [hoveredListPlace, setHoveredListPlace] = useState<Place | null>(null);
   const [mapHoveredPlace, setMapHoveredPlace] = useState<Place | null>(null);
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds | null>(null);
+  const [viewportRevision, setViewportRevision] = useState(0);
   const [connectorLine, setConnectorLine] = useState<ConnectorLine | null>(null);
   const [online, setOnline] = useState(false);
   const [listAttention, setListAttention] = useState(false);
   const listAttentionPlayedRef = useRef(false);
   const listAttentionTimerRef = useRef(0);
-  const showTitlesRef = useRef(false);
+  const listOpenRef = useRef(false);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
   const countries = useMemo(() => unique(places.map((place) => place.country))
@@ -326,7 +338,9 @@ export default function Home() {
     return searchTokens.every((token) => haystack.includes(token));
   }), [places, searchTokens, selectedCategories, selectedCountries, topOnly]);
   const listPlaces = useMemo(() => {
-    const items = visiblePlaces.filter((place) => placeIsInViewport(place, viewportBounds) && (!listTopOnly || place.top));
+    const items = visiblePlaces.filter((place) => placeIsInViewport(place, viewportBounds)
+      && placeIsInVisibleMapArea(place, mapRef.current, listOpen, listPanelRef.current)
+      && (!listTopOnly || place.top));
     return items.sort((a, b) => {
       if (listSort === "name") {
         const comparison = (a.name || "Névtelen klip").localeCompare(b.name || "Névtelen klip", "hu", { sensitivity: "base" });
@@ -336,14 +350,15 @@ export default function Home() {
       const comparison = (a.clipDate || "").localeCompare(b.clipDate || "");
       return (listSortDirection === "asc" ? comparison : -comparison) || b.id - a.id;
     });
-  }, [listSort, listSortDirection, listTopOnly, viewportBounds, visiblePlaces]);
+  }, [listOpen, listSort, listSortDirection, listTopOnly, viewportBounds, viewportRevision, visiblePlaces]);
   const connectorPlace = hoveredListPlace ?? activeListPlace;
   const highlightedPlace = hoveredListPlace ?? mapHoveredPlace;
-  const viewportHidesClips = visiblePlaces.some((place) => !placeIsInViewport(place, viewportBounds));
+  const viewportHidesClips = visiblePlaces.some((place) => !placeIsInViewport(place, viewportBounds)
+    || !placeIsInVisibleMapArea(place, mapRef.current, listOpen, listPanelRef.current));
   const hasActiveFilters = topOnly || listTopOnly || Boolean(searchTokens.length)
     || selectedCategories.length !== categories.length || selectedCountries.length !== countries.length || viewportHidesClips;
 
-  useEffect(() => { showTitlesRef.current = showTitles; }, [showTitles]);
+  useEffect(() => { listOpenRef.current = listOpen; setViewportRevision((revision) => revision + 1); }, [listOpen]);
 
   useEffect(() => {
     let active = true;
@@ -409,13 +424,7 @@ export default function Home() {
         cancelPendingTileRequestsWhileZooming: false,
       });
       mapRef.current = map;
-      map.setMissingStyleImageResolver((id) => {
-        const match = /^cluster-([0-9]+)$/.exec(id);
-        if (!match || map.hasImage(id)) return;
-        const icon = makeClusterIcon(Number(match[1]));
-        if (icon) map.addImage(id, icon, { pixelRatio: 2 });
-      });
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
       let prefetchTimer = 0;
@@ -426,6 +435,7 @@ export default function Home() {
       const syncViewportBounds = () => {
         const bounds = map.getBounds();
         setViewportBounds({ west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth() });
+        setViewportRevision((revision) => revision + 1);
       };
       const wakeMap = () => requestAnimationFrame(() => requestAnimationFrame(() => {
         if (cancelled) return;
@@ -441,6 +451,7 @@ export default function Home() {
       document.addEventListener("visibilitychange", handleVisibility);
       map.on("moveend", scheduleTilePrefetch);
       map.on("moveend", syncViewportBounds);
+      map.on("resize", syncViewportBounds);
       map.on("idle", scheduleTilePrefetch);
       detachMapWakeups = () => {
         window.clearTimeout(prefetchTimer);
@@ -450,6 +461,7 @@ export default function Home() {
         document.removeEventListener("visibilitychange", handleVisibility);
         map.off("moveend", scheduleTilePrefetch);
         map.off("moveend", syncViewportBounds);
+        map.off("resize", syncViewportBounds);
         map.off("idle", scheduleTilePrefetch);
       };
 
@@ -462,17 +474,30 @@ export default function Home() {
         const titleBackground = makeTitleLabelBackground();
         if (titleBackground) {
           map.addImage("title-label-background", titleBackground, {
-            pixelRatio: 2, stretchX: [[12, 28]], stretchY: [[10, 20]], content: [9, 6, 31, 24],
+            pixelRatio: 2, stretchX: [[7, 16], [24, 33]], stretchY: [[7, 20]], content: [7, 5, 33, 25],
           });
         }
         map.addSource("clips", {
-          type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 14, clusterRadius: 32,
+          type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 16, clusterRadius: 22,
         });
         map.addSource("active-clip", { type: "geojson", data: placesToGeoJson([]) });
         map.addSource("active-cluster", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
-          id: "clip-clusters", type: "symbol", source: "clips", filter: ["has", "point_count"],
-          layout: { "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]], "icon-allow-overlap": true },
+          id: "clip-clusters", type: "circle", source: "clips", filter: ["has", "point_count"],
+          paint: {
+            "circle-radius": ["step", ["get", "point_count"], 16, 10, 19, 100, 22],
+            "circle-color": "#34224f", "circle-stroke-color": "#dc8cff", "circle-stroke-width": 2,
+          },
+        });
+        map.addLayer({
+          id: "cluster-count", type: "symbol", source: "clips", filter: ["has", "point_count"],
+          layout: {
+            "text-field": ["to-string", ["get", "point_count"]], "text-font": ["Arial"],
+            "text-size": ["step", ["get", "point_count"], 12, 100, 11],
+            "text-allow-overlap": true, "text-ignore-placement": true,
+            "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
+          },
+          paint: { "text-color": "#ffffff", "text-halo-color": "rgba(21, 10, 34, .55)", "text-halo-width": 0.7 },
         });
         map.addLayer({
           id: "clip-points", type: "circle", source: "clips",
@@ -496,8 +521,10 @@ export default function Home() {
             "icon-text-fit-padding": [5, 8, 5, 8],
             "icon-allow-overlap": true, "icon-ignore-placement": true,
             "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
-            "text-anchor": "bottom", "text-offset": [0, -1.15], "text-max-width": 18,
+            "text-anchor": "bottom", "text-offset": [0, -1.25], "text-max-width": 18,
             "text-allow-overlap": true, "text-ignore-placement": true,
+            "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
+            "icon-rotation-alignment": "viewport", "icon-pitch-alignment": "viewport",
           },
           paint: {
             "text-color": "#efffff", "text-halo-color": "rgba(4, 11, 16, 0.45)",
@@ -526,11 +553,21 @@ export default function Home() {
           },
         });
         map.addLayer({
-          id: "active-cluster", type: "symbol", source: "active-cluster",
-          layout: {
-            "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]],
-            "icon-size": 1.08, "icon-allow-overlap": true,
+          id: "active-cluster", type: "circle", source: "active-cluster",
+          paint: {
+            "circle-radius": ["step", ["get", "point_count"], 17.5, 10, 20.5, 100, 23.5],
+            "circle-color": "#4a2d6d", "circle-stroke-color": "#f0b0ff", "circle-stroke-width": 2.3,
           },
+        });
+        map.addLayer({
+          id: "active-cluster-count", type: "symbol", source: "active-cluster",
+          layout: {
+            "text-field": ["to-string", ["get", "point_count"]], "text-font": ["Arial"],
+            "text-size": ["step", ["get", "point_count"], 12, 100, 11],
+            "text-allow-overlap": true, "text-ignore-placement": true,
+            "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
+          },
+          paint: { "text-color": "#ffffff", "text-halo-color": "rgba(21, 10, 34, .65)", "text-halo-width": 0.8 },
         });
 
         const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
@@ -541,10 +578,8 @@ export default function Home() {
             if (!feature || feature.geometry.type !== "Point") return;
             const place = places.find((item) => item.id === Number(feature.properties?.id));
             setMapHoveredPlace(place ?? null);
-            if (!showTitlesRef.current) {
-              popup.setLngLat(feature.geometry.coordinates as [number, number])
-                .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
-            }
+            popup.setLngLat(feature.geometry.coordinates as [number, number])
+              .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
           });
           map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; setMapHoveredPlace(null); popup.remove(); });
           map.on("click", layerId, (event) => {
@@ -554,6 +589,7 @@ export default function Home() {
           });
         };
         bindPointLayer("clip-hit-area");
+        bindPointLayer("clip-labels");
         map.on("mouseenter", "clip-clusters", (event) => {
           map.getCanvas().style.cursor = "pointer";
           const feature = event.features?.[0];
@@ -584,22 +620,18 @@ export default function Home() {
             const south = Math.min(...coordinates.map(([, latitude]) => latitude));
             const north = Math.max(...coordinates.map(([, latitude]) => latitude));
             const container = map.getContainer();
-            const horizontalPadding = Math.max(44, Math.round(container.clientWidth * 0.08));
-            const verticalPadding = Math.max(44, Math.round(container.clientHeight * 0.08));
-            const padding = {
-              top: verticalPadding, bottom: verticalPadding,
-              left: horizontalPadding, right: horizontalPadding,
-            };
+            const { offset, padding } = getListAwareMapOptions(map, listOpenRef.current, listPanelRef.current,
+              Math.max(48, Math.round(Math.min(container.clientWidth, container.clientHeight) * 0.12)));
             if (west === east && south === north) {
-              map.easeTo({ center: [west, south], zoom: 16, duration: 720 });
+              map.easeTo({ center: [west, south], zoom: 17, offset, duration: 720 });
             } else {
-              map.fitBounds([[west, south], [east, north]], { padding, maxZoom: 16, duration: 720 });
+              map.fitBounds([[west, south], [east, north]], { padding, maxZoom: 17, duration: 720 });
             }
           }).catch(() => {});
         });
         map.on("click", (event) => {
           const interactiveFeatures = map.queryRenderedFeatures(event.point, {
-            layers: ["clip-clusters", "clip-hit-area", "clip-points", "top-points", "active-clip-point", "active-top-point", "active-cluster"],
+            layers: ["clip-clusters", "cluster-count", "clip-hit-area", "clip-points", "top-points", "clip-labels", "active-clip-point", "active-top-point", "active-cluster", "active-cluster-count"],
           });
           if (!interactiveFeatures.length) setListOpen(false);
         });
@@ -657,9 +689,9 @@ export default function Home() {
       return;
     }
     const timeout = window.setTimeout(() => {
-      const panelWidth = listOpen ? (listPanelRef.current?.getBoundingClientRect().width ?? 0) : 0;
+      const { offset, padding } = getListAwareMapOptions(map, listOpen, listPanelRef.current);
       if (visiblePlaces.length === 1) {
-        map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, offset: [panelWidth / 2, 0], duration: 650 });
+        map.easeTo({ center: [visiblePlaces[0].longitude, visiblePlaces[0].latitude], zoom: 14, offset, duration: 650 });
         return;
       }
       const west = Math.min(...visiblePlaces.map((place) => place.longitude));
@@ -668,7 +700,7 @@ export default function Home() {
       const north = Math.max(...visiblePlaces.map((place) => place.latitude));
       const maxZoom = visiblePlaces.length <= 4 ? 13 : visiblePlaces.length <= 20 ? 11 : 7;
       map.fitBounds([[west, south], [east, north]], {
-        padding: { top: 54, right: 54, bottom: 54, left: panelWidth + 54 }, maxZoom, duration: 650,
+        padding, maxZoom, duration: 650,
       });
     }, searchTokens.length ? 260 : 0);
     return () => window.clearTimeout(timeout);
@@ -770,8 +802,8 @@ export default function Home() {
     const map = mapRef.current;
     if (!map) return;
     map.stop();
-    const panelWidth = listPanelRef.current?.getBoundingClientRect().width ?? 0;
-    map.easeTo({ center: [place.longitude, place.latitude], zoom: 15, offset: [panelWidth / 2, 0], duration: 720 });
+    const { offset } = getListAwareMapOptions(map, true, listPanelRef.current);
+    map.easeTo({ center: [place.longitude, place.latitude], zoom: 15, offset, duration: 720 });
   };
 
   const activateListPlace = (place: Place) => {
@@ -809,9 +841,9 @@ export default function Home() {
     const south = Math.min(...places.map((place) => place.latitude));
     const north = Math.max(...places.map((place) => place.latitude));
     map.stop();
-    const panelWidth = listOpen ? (listPanelRef.current?.getBoundingClientRect().width ?? 0) : 0;
+    const { padding } = getListAwareMapOptions(map, listOpen, listPanelRef.current, 64);
     map.fitBounds([[west, south], [east, north]], {
-      padding: { top: 64, right: 64, bottom: 64, left: panelWidth + 64 }, maxZoom: 7, duration: 700,
+      padding, maxZoom: 7, duration: 700,
     });
   };
   const parent = typeof window === "undefined" ? "localhost" : window.location.hostname;
@@ -939,7 +971,7 @@ export default function Home() {
             </div>
           </div>
           <div className="clip-list-scroll" ref={listScrollRef}>
-            {listPlaces.length ? listPlaces.map((place) => (
+            {listOpen ? (listPlaces.length ? listPlaces.map((place) => (
               <div key={place.id} role="button" tabIndex={0}
                 ref={(element) => { if (element) listRowRefs.current.set(place.id, element); else listRowRefs.current.delete(place.id); }}
                 className={`clip-list-row ${!place.clipUrl ? "inactive" : ""} ${activeListPlace?.id === place.id ? "active" : ""}`}
@@ -956,7 +988,7 @@ export default function Home() {
                 <span className="clip-list-title">{place.name || "Névtelen klip"}</span>
                 {place.clipDate && <time dateTime={place.clipDate}>{place.clipDate.replaceAll("-", "/")}</time>}
               </div>
-            )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
+            )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>) : null}
           </div>
         </aside>
         <button className={`clip-list-toggle ${listAttention && !listOpen ? "attention" : ""}`} type="button" onClick={() => setListOpen((open) => !open)}

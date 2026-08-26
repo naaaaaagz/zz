@@ -12,7 +12,7 @@ const expectedDescription = "ZedTheCyclist bringás streamjeiről a clip-ek, té
 const requiredText = [
   `content="${expectedDescription}"`,
   "clip-source-keywords",
-  "setMissingStyleImageResolver",
+  "cluster-count",
   "active-cluster",
   "clip-hit-area",
   "title-label-background",
@@ -28,6 +28,9 @@ for (const value of requiredText) {
 }
 if (html.includes('"icon-offset":[0,-13]')) {
   throw new Error("Title label background must follow the text offset instead of receiving a second offset");
+}
+if (html.includes("setMissingStyleImageResolver")) {
+  throw new Error("Raster-generated cluster icons must not be reintroduced");
 }
 
 console.log("Static HTML syntax and feature checks passed.");
