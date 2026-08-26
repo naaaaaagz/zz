@@ -95,7 +95,7 @@ const html = `<!doctype html>
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="modulepreload" href="./maplibre-gl.mjs">
   <link rel="modulepreload" href="./maplibre-gl-shared.mjs">
-  <style>${appCss}\n${maplibreCss}</style>
+  <style>${maplibreCss}\n${appCss}</style>
   <style>
     .filters-panel,.filter-dismiss,.modal-backdrop{display:none}
     .filters-panel.open{display:block}.filter-dismiss.open{display:block}.modal-backdrop.open{display:grid}
