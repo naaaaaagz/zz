@@ -26,5 +26,8 @@ const requiredText = [
 for (const value of requiredText) {
   if (!html.includes(value)) throw new Error(`Missing standalone output: ${value}`);
 }
+if (html.includes('"icon-offset":[0,-13]')) {
+  throw new Error("Title label background must follow the text offset instead of receiving a second offset");
+}
 
 console.log("Static HTML syntax and feature checks passed.");

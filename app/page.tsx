@@ -493,7 +493,7 @@ export default function Home() {
           filter: ["!", ["has", "point_count"]],
           layout: {
             visibility: "none", "icon-image": "title-label-background", "icon-text-fit": "both",
-            "icon-text-fit-padding": [5, 8, 5, 8], "icon-anchor": "bottom", "icon-offset": [0, -13],
+            "icon-text-fit-padding": [5, 8, 5, 8],
             "icon-allow-overlap": true, "icon-ignore-placement": true,
             "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
             "text-anchor": "bottom", "text-offset": [0, -1.15], "text-max-width": 18,
