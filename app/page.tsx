@@ -240,6 +240,18 @@ function makeClusterIcon(count: number) {
   return context.getImageData(0, 0, size, size);
 }
 
+function makeTitleLabelBackground() {
+  const width = 40; const height = 30;
+  const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.beginPath();
+  context.roundRect(1.5, 1.5, width - 3, height - 3, 8);
+  context.fillStyle = "rgba(11, 27, 36, 0.96)"; context.fill();
+  context.lineWidth = 2; context.strokeStyle = "rgba(192, 92, 255, 0.52)"; context.stroke();
+  return context.getImageData(0, 0, width, height);
+}
+
 function ClipPlayer({ clipId, parent, title }: { clipId: string; parent: string; title: string }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -267,7 +279,7 @@ export default function Home() {
   const searchOriginRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const listPanelRef = useRef<HTMLElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
-  const listRowRefs = useRef(new Map<number, HTMLButtonElement>());
+  const listRowRefs = useRef(new Map<number, HTMLDivElement>());
   const [places, setPlaces] = useState<Place[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [selected, setSelected] = useState<Place | null>(null);
@@ -447,6 +459,12 @@ export default function Home() {
 
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
+        const titleBackground = makeTitleLabelBackground();
+        if (titleBackground) {
+          map.addImage("title-label-background", titleBackground, {
+            pixelRatio: 2, stretchX: [[12, 28]], stretchY: [[10, 20]], content: [9, 6, 31, 24],
+          });
+        }
         map.addSource("clips", {
           type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 14, clusterRadius: 32,
         });
@@ -474,13 +492,16 @@ export default function Home() {
           id: "clip-labels", type: "symbol", source: "clips",
           filter: ["!", ["has", "point_count"]],
           layout: {
-            visibility: "none", "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
+            visibility: "none", "icon-image": "title-label-background", "icon-text-fit": "both",
+            "icon-text-fit-padding": [5, 8, 5, 8], "icon-anchor": "bottom", "icon-offset": [0, -13],
+            "icon-allow-overlap": true, "icon-ignore-placement": true,
+            "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
             "text-anchor": "bottom", "text-offset": [0, -1.15], "text-max-width": 18,
             "text-allow-overlap": true, "text-ignore-placement": true,
           },
           paint: {
-            "text-color": "#eadcf3", "text-halo-color": "rgba(4, 11, 16, 0.94)",
-            "text-halo-width": 2, "text-halo-blur": 0.4,
+            "text-color": "#efffff", "text-halo-color": "rgba(4, 11, 16, 0.45)",
+            "text-halo-width": 0.7, "text-halo-blur": 0.2,
           },
         });
         map.addLayer({
@@ -753,6 +774,14 @@ export default function Home() {
     map.easeTo({ center: [place.longitude, place.latitude], zoom: 15, offset: [panelWidth / 2, 0], duration: 720 });
   };
 
+  const activateListPlace = (place: Place) => {
+    if (activeListPlace?.id === place.id) {
+      if (place.clipUrl) setSelected(place);
+      return;
+    }
+    focusListPlace(place);
+  };
+
   const toggleListSort = (nextSort: "date" | "name") => {
     if (nextSort === listSort) {
       setListSortDirection((direction) => direction === "asc" ? "desc" : "asc");
@@ -911,15 +940,22 @@ export default function Home() {
           </div>
           <div className="clip-list-scroll" ref={listScrollRef}>
             {listPlaces.length ? listPlaces.map((place) => (
-              <button key={place.id} type="button"
+              <div key={place.id} role="button" tabIndex={0}
                 ref={(element) => { if (element) listRowRefs.current.set(place.id, element); else listRowRefs.current.delete(place.id); }}
                 className={`clip-list-row ${!place.clipUrl ? "inactive" : ""} ${activeListPlace?.id === place.id ? "active" : ""}`}
                 onMouseEnter={() => setHoveredListPlace(place)} onMouseLeave={() => setHoveredListPlace(null)}
-                onClick={() => focusListPlace(place)} title={!place.clipUrl ? "Ehhez a helyhez nincs lejátszható klip" : undefined}>
+                onClick={() => activateListPlace(place)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                  event.preventDefault(); activateListPlace(place);
+                }} title={!place.clipUrl ? "Ehhez a helyhez nincs lejátszható klip" : undefined}>
+                <button className="list-play-button" type="button" disabled={!place.clipUrl}
+                  aria-label={place.clipUrl ? `${place.name || "Névtelen klip"} lejátszása` : "Nincs lejátszható klip"}
+                  onClick={(event) => { event.stopPropagation(); if (place.clipUrl) setSelected(place); }} />
                 {place.top && <span className="list-top-badge">TOP</span>}
                 <span className="clip-list-title">{place.name || "Névtelen klip"}</span>
                 {place.clipDate && <time dateTime={place.clipDate}>{place.clipDate.replaceAll("-", "/")}</time>}
-              </button>
+              </div>
             )) : <p className="clip-list-empty">Nincs megjeleníthető klip.</p>}
           </div>
         </aside>
@@ -955,6 +991,7 @@ export default function Home() {
           </section>
         </div>
       )}
+      <div className="site-credit">vibecoded with love by nagz</div>
     </main>
   );
 }

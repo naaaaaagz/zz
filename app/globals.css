@@ -123,6 +123,11 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
 .clip-list-row.inactive { color: #6f8289; opacity: .72; }
 .clip-list-row.inactive:hover, .clip-list-row.inactive.active { background: linear-gradient(90deg, rgba(124, 146, 153, .13), rgba(124, 146, 153, .025)); color: #9eb0b6; }
 .list-top-badge { flex: 0 0 auto; padding: 2px 5px; border: 1px solid rgba(225, 148, 255, .35); border-radius: 5px; background: rgba(130, 45, 174, .24); color: #edbaff; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.list-play-button { position: relative; display: grid; place-items: center; width: 24px; height: 22px; flex: 0 0 24px; padding: 0; border: 1px solid rgba(201, 112, 246, .27); border-radius: 6px; background: rgba(83, 36, 108, .2); color: #dda0fb; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.list-play-button::before { content: ""; width: 0; height: 0; margin-left: 2px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
+.list-play-button:hover { transform: translateY(-1px); border-color: rgba(218, 137, 255, .58); background: rgba(122, 49, 157, .34); color: #f0c4ff; }
+.list-play-button:focus-visible { outline: 2px solid rgba(211, 117, 255, .66); outline-offset: 1px; }
+.list-play-button:disabled { cursor: default; opacity: .26; transform: none; }
 .clip-list-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .clip-list-row time { flex: 0 0 auto; color: #667b84; font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .clip-list-empty { margin: 22px 12px; color: #7f959e; font-size: 12px; text-align: center; }
@@ -179,6 +184,7 @@ button, a, input { font: inherit; -webkit-tap-highlight-color: transparent; }
 .player-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 12px; background: #020507; }
 .player-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
 .clip-source-keywords { margin: 9px 3px 0; color: rgba(170, 184, 191, .38); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.site-credit { position: fixed; z-index: 3000; right: 7px; bottom: 5px; pointer-events: none; color: rgba(211, 204, 220, .18); font-size: 8px; font-weight: 500; letter-spacing: .035em; line-height: 1; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   .clip-list-toggle.attention, .clip-list-toggle.attention::after { animation: none; }
 }
