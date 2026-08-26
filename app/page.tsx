@@ -278,6 +278,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [suggestionCursor, setSuggestionCursor] = useState(0);
+  const [showTitles, setShowTitles] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [listTopOnly, setListTopOnly] = useState(false);
   const [listSort, setListSort] = useState<"date" | "name">("date");
@@ -291,6 +292,7 @@ export default function Home() {
   const [listAttention, setListAttention] = useState(false);
   const listAttentionPlayedRef = useRef(false);
   const listAttentionTimerRef = useRef(0);
+  const showTitlesRef = useRef(false);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
   const countries = useMemo(() => unique(places.map((place) => place.country))
@@ -328,6 +330,8 @@ export default function Home() {
   const viewportHidesClips = visiblePlaces.some((place) => !placeIsInViewport(place, viewportBounds));
   const hasActiveFilters = topOnly || listTopOnly || Boolean(searchTokens.length)
     || selectedCategories.length !== categories.length || selectedCountries.length !== countries.length || viewportHidesClips;
+
+  useEffect(() => { showTitlesRef.current = showTitles; }, [showTitles]);
 
   useEffect(() => {
     let active = true;
@@ -447,6 +451,7 @@ export default function Home() {
           type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 14, clusterRadius: 32,
         });
         map.addSource("active-clip", { type: "geojson", data: placesToGeoJson([]) });
+        map.addSource("active-cluster", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
           id: "clip-clusters", type: "symbol", source: "clips", filter: ["has", "point_count"],
           layout: { "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]], "icon-allow-overlap": true },
@@ -466,6 +471,19 @@ export default function Home() {
           layout: { "icon-image": "top-star", "icon-size": 1, "icon-allow-overlap": true },
         });
         map.addLayer({
+          id: "clip-labels", type: "symbol", source: "clips",
+          filter: ["!", ["has", "point_count"]],
+          layout: {
+            visibility: "none", "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
+            "text-anchor": "bottom", "text-offset": [0, -1.15], "text-max-width": 18,
+            "text-allow-overlap": true, "text-ignore-placement": true,
+          },
+          paint: {
+            "text-color": "#eadcf3", "text-halo-color": "rgba(4, 11, 16, 0.94)",
+            "text-halo-width": 2, "text-halo-blur": 0.4,
+          },
+        });
+        map.addLayer({
           id: "active-clip-point", type: "circle", source: "active-clip",
           filter: ["==", ["get", "top"], false],
           paint: {
@@ -479,6 +497,20 @@ export default function Home() {
           filter: ["==", ["get", "top"], true],
           layout: { "icon-image": "top-star", "icon-size": 1.8, "icon-allow-overlap": true },
         });
+        map.addLayer({
+          id: "clip-hit-area", type: "circle", source: "clips", filter: ["!", ["has", "point_count"]],
+          paint: {
+            "circle-radius": ["case", ["get", "top"], 18, ["get", "linked"], 11.5, 10.5],
+            "circle-color": "rgba(0, 0, 0, 0.01)", "circle-stroke-width": 0,
+          },
+        });
+        map.addLayer({
+          id: "active-cluster", type: "symbol", source: "active-cluster",
+          layout: {
+            "icon-image": ["concat", "cluster-", ["to-string", ["get", "point_count"]]],
+            "icon-size": 1.08, "icon-allow-overlap": true,
+          },
+        });
 
         const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
         const bindPointLayer = (layerId: string) => {
@@ -488,8 +520,10 @@ export default function Home() {
             if (!feature || feature.geometry.type !== "Point") return;
             const place = places.find((item) => item.id === Number(feature.properties?.id));
             setMapHoveredPlace(place ?? null);
-            popup.setLngLat(feature.geometry.coordinates as [number, number])
-              .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
+            if (!showTitlesRef.current) {
+              popup.setLngLat(feature.geometry.coordinates as [number, number])
+                .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
+            }
           });
           map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; setMapHoveredPlace(null); popup.remove(); });
           map.on("click", layerId, (event) => {
@@ -498,9 +532,23 @@ export default function Home() {
             if (place?.clipUrl) setSelected(place);
           });
         };
-        bindPointLayer("clip-points"); bindPointLayer("top-points");
-        map.on("mouseenter", "clip-clusters", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "clip-clusters", () => { map.getCanvas().style.cursor = ""; });
+        bindPointLayer("clip-hit-area");
+        map.on("mouseenter", "clip-clusters", (event) => {
+          map.getCanvas().style.cursor = "pointer";
+          const feature = event.features?.[0];
+          if (!feature || feature.geometry.type !== "Point") return;
+          (map.getSource("active-cluster") as GeoJSONSource).setData({
+            type: "FeatureCollection",
+            features: [{
+              type: "Feature", geometry: feature.geometry,
+              properties: { point_count: Number(feature.properties?.point_count ?? 2) },
+            }],
+          });
+        });
+        map.on("mouseleave", "clip-clusters", () => {
+          map.getCanvas().style.cursor = "";
+          (map.getSource("active-cluster") as GeoJSONSource).setData({ type: "FeatureCollection", features: [] });
+        });
         map.on("click", "clip-clusters", (event) => {
           const feature = event.features?.[0];
           if (!feature || feature.geometry.type !== "Point") return;
@@ -530,7 +578,7 @@ export default function Home() {
         });
         map.on("click", (event) => {
           const interactiveFeatures = map.queryRenderedFeatures(event.point, {
-            layers: ["clip-clusters", "clip-points", "top-points", "active-clip-point", "active-top-point"],
+            layers: ["clip-clusters", "clip-hit-area", "clip-points", "top-points", "active-clip-point", "active-top-point", "active-cluster"],
           });
           if (!interactiveFeatures.length) setListOpen(false);
         });
@@ -571,6 +619,12 @@ export default function Home() {
     if (!mapReady || !source) return;
     source.setData(placesToGeoJson(highlightedPlace ? [highlightedPlace] : []));
   }, [highlightedPlace, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map?.getLayer("clip-labels")) return;
+    map.setLayoutProperty("clip-labels", "visibility", showTitles ? "visible" : "none");
+  }, [mapReady, showTitles]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -779,6 +833,11 @@ export default function Home() {
             </div>
           )}
         </div>
+        <button className={`title-toggle ${showTitles ? "active" : ""}`} type="button" role="switch"
+          aria-checked={showTitles} aria-label="Klipcímek megjelenítése"
+          onClick={() => setShowTitles((visible) => !visible)}>
+          <span className="title-toggle-track" aria-hidden="true"><i /></span><b>Címek</b>
+        </button>
         <button className="filter-button" onClick={() => setFiltersOpen((open) => !open)}
           aria-expanded={filtersOpen} aria-controls="filters-panel">
           <span className="filter-icon" aria-hidden="true"><i /><i /><i /></span>Szűrők
