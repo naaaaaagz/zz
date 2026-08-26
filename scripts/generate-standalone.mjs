@@ -3,7 +3,7 @@ import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 const SOURCE = "1ZmgPHO2blY5aPFv97Ra_8kO2MexeO_SScGGjbS134ZQ";
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
 const LIVE_URL = "https://zedthecyclist-map.naaaaaagz.chatgpt.site/api/live";
-const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png";
+const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png?key=cb1_25b0_1_cf52869ae38041a055110db7";
 const LABEL_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
 const COUNTRY_NAMES_HU = {
   Austria: "Ausztria", Belgium: "Belgium", Croatia: "Horvátország", Germany: "Németország",

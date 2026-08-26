@@ -5,7 +5,7 @@ import type { GeoJSONSource, Map as MapLibreMap, StyleSpecification } from "mapl
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const TWITCH_URL = "https://www.twitch.tv/zedthecyclist";
-const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png";
+const BASE_TILE_URL = "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png?key=cb1_25b0_1_cf52869ae38041a055110db7";
 const LABEL_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
 const MAP_STYLE: StyleSpecification = {
   version: 8,
