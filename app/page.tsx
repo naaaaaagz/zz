@@ -132,8 +132,8 @@ function buildSearchSuggestions(places: Place[]) {
     const candidates = [
       { label: place.category, kind: "Kategória", priority: 5 },
       { label: countryNameHu(place.country), kind: "Ország", priority: 5 },
-      { label: place.name, kind: "Klip", priority: 4 },
-      { label: place.twitchTitle, kind: "Twitch-cím", priority: 3 },
+      { label: place.name, kind: "Cím", priority: 4 },
+      { label: place.twitchTitle, kind: "Cím", priority: 3 },
       ...[place.sourceKeywords, place.keywords].flatMap((value) => value.split(","))
         .map((label) => ({ label: label.trim(), kind: "Kulcsszó", priority: 2 })),
       ...place.twitchKeywords.split(",")
@@ -259,18 +259,18 @@ function makeTopStar() {
   return context.getImageData(0, 0, size, size);
 }
 
-function makeTitleLabelBackground() {
+function makeTitleLabelBackground(hovered = false) {
   const width = 40; const height = 36;
   const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.beginPath();
   context.roundRect(1.5, 1.5, width - 3, 27, 7);
-  context.fillStyle = "rgba(10, 24, 32, 0.82)"; context.fill();
-  context.lineWidth = 1.5; context.strokeStyle = "rgba(192, 92, 255, 0.32)"; context.stroke();
+  context.fillStyle = hovered ? "rgba(28, 14, 42, 0.96)" : "rgba(10, 24, 32, 0.82)"; context.fill();
+  context.lineWidth = hovered ? 2 : 1.5; context.strokeStyle = hovered ? "rgba(227, 150, 255, 0.88)" : "rgba(192, 92, 255, 0.32)"; context.stroke();
   context.beginPath(); context.moveTo(16.5, 28); context.lineTo(20, 34); context.lineTo(23.5, 28); context.closePath();
-  context.fillStyle = "rgba(10, 24, 32, 0.82)"; context.fill();
-  context.strokeStyle = "rgba(192, 92, 255, 0.32)"; context.stroke();
+  context.fillStyle = hovered ? "rgba(28, 14, 42, 0.96)" : "rgba(10, 24, 32, 0.82)"; context.fill();
+  context.strokeStyle = hovered ? "rgba(227, 150, 255, 0.88)" : "rgba(192, 92, 255, 0.32)"; context.stroke();
   return context.getImageData(0, 0, width, height);
 }
 
@@ -317,6 +317,9 @@ export default function Home() {
   const listAttentionPlayedRef = useRef(false);
   const listAttentionTimerRef = useRef(0);
   const listOpenRef = useRef(false);
+  const showTitlesRef = useRef(false);
+  const hoveredLabelIdRef = useRef<number | null>(null);
+  const hoveredLabelLeaveTimerRef = useRef(0);
 
   const categories = useMemo(() => unique(places.map((place) => place.category)), [places]);
   const countries = useMemo(() => unique(places.map((place) => place.country))
@@ -477,15 +480,22 @@ export default function Home() {
             pixelRatio: 2, stretchX: [[7, 16], [24, 33]], stretchY: [[7, 20]], content: [7, 5, 33, 25],
           });
         }
+        const hoveredTitleBackground = makeTitleLabelBackground(true);
+        if (hoveredTitleBackground) {
+          map.addImage("title-label-hover-background", hoveredTitleBackground, {
+            pixelRatio: 2, stretchX: [[7, 16], [24, 33]], stretchY: [[7, 20]], content: [7, 5, 33, 25],
+          });
+        }
         map.addSource("clips", {
           type: "geojson", data: placesToGeoJson(places), cluster: true, clusterMaxZoom: 16, clusterRadius: 22,
         });
         map.addSource("active-clip", { type: "geojson", data: placesToGeoJson([]) });
+        map.addSource("hovered-label", { type: "geojson", data: placesToGeoJson([]) });
         map.addSource("active-cluster", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
           id: "clip-clusters", type: "circle", source: "clips", filter: ["has", "point_count"],
           paint: {
-            "circle-radius": ["step", ["get", "point_count"], 16, 10, 19, 100, 22],
+            "circle-radius": ["step", ["get", "point_count"], 17.5, 10, 21, 100, 24],
             "circle-color": "#34224f", "circle-stroke-color": "#dc8cff", "circle-stroke-width": 2,
           },
         });
@@ -493,7 +503,7 @@ export default function Home() {
           id: "cluster-count", type: "symbol", source: "clips", filter: ["has", "point_count"],
           layout: {
             "text-field": ["to-string", ["get", "point_count"]], "text-font": ["Arial"],
-            "text-size": ["step", ["get", "point_count"], 12, 100, 11],
+            "text-size": ["step", ["get", "point_count"], 13, 100, 12],
             "text-allow-overlap": true, "text-ignore-placement": true,
             "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
           },
@@ -503,7 +513,7 @@ export default function Home() {
           id: "clip-points", type: "circle", source: "clips",
           filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], false]],
           paint: {
-            "circle-radius": ["case", ["get", "linked"], 5, 4],
+            "circle-radius": ["case", ["get", "linked"], 5.5, 4.5],
             "circle-color": ["case", ["get", "linked"], "#bd5cff", "#7c9299"],
             "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
           },
@@ -511,7 +521,7 @@ export default function Home() {
         map.addLayer({
           id: "top-points", type: "symbol", source: "clips",
           filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], true]],
-          layout: { "icon-image": "top-star", "icon-size": 1, "icon-allow-overlap": true },
+          layout: { "icon-image": "top-star", "icon-size": 1.1, "icon-allow-overlap": true },
         });
         map.addLayer({
           id: "clip-labels", type: "symbol", source: "clips",
@@ -520,22 +530,41 @@ export default function Home() {
             visibility: "none", "icon-image": "title-label-background", "icon-text-fit": "both",
             "icon-text-fit-padding": [5, 8, 5, 8],
             "icon-allow-overlap": true, "icon-ignore-placement": true,
-            "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 11,
-            "text-anchor": "bottom", "text-offset": [0, -1.25], "text-max-width": 18,
+            "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 12,
+            "text-anchor": "bottom", "text-offset": [0, -1.45], "text-max-width": 18,
             "text-allow-overlap": true, "text-ignore-placement": true,
             "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
             "icon-rotation-alignment": "viewport", "icon-pitch-alignment": "viewport",
           },
           paint: {
+            "icon-opacity": ["case", ["boolean", ["feature-state", "title-hover"], false], 0, 1],
+            "text-opacity": ["case", ["boolean", ["feature-state", "title-hover"], false], 0, 1],
             "text-color": "#efffff", "text-halo-color": "rgba(4, 11, 16, 0.45)",
             "text-halo-width": 0.7, "text-halo-blur": 0.2,
+          },
+        });
+        map.addLayer({
+          id: "hovered-clip-label", type: "symbol", source: "hovered-label",
+          layout: {
+            "icon-image": "title-label-hover-background", "icon-text-fit": "both", "icon-text-fit-padding": [5, 8, 5, 8],
+            "icon-allow-overlap": true, "icon-ignore-placement": true,
+            "text-field": ["get", "name"], "text-font": ["Arial"], "text-size": 12,
+            "text-anchor": "bottom", "text-offset": [0, -1.45], "text-max-width": 18,
+            "text-allow-overlap": true, "text-ignore-placement": true,
+            "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
+            "icon-rotation-alignment": "viewport", "icon-pitch-alignment": "viewport",
+          },
+          paint: {
+            "icon-translate": [0, 0], "icon-translate-transition": { duration: 170, delay: 0 },
+            "text-translate": [0, 0], "text-translate-transition": { duration: 170, delay: 0 },
+            "text-color": "#fff5ff", "text-halo-color": "rgba(34, 12, 48, 0.72)", "text-halo-width": 0.9,
           },
         });
         map.addLayer({
           id: "active-clip-point", type: "circle", source: "active-clip",
           filter: ["==", ["get", "top"], false],
           paint: {
-            "circle-radius": ["case", ["get", "linked"], 9.5, 7.5],
+            "circle-radius": ["case", ["get", "linked"], 10.5, 8.25],
             "circle-color": ["case", ["get", "linked"], "#c86cff", "#91a5ac"],
             "circle-stroke-color": "#f0c4ff", "circle-stroke-width": 2, "circle-blur": 0.06,
           },
@@ -543,19 +572,19 @@ export default function Home() {
         map.addLayer({
           id: "active-top-point", type: "symbol", source: "active-clip",
           filter: ["==", ["get", "top"], true],
-          layout: { "icon-image": "top-star", "icon-size": 1.8, "icon-allow-overlap": true },
+          layout: { "icon-image": "top-star", "icon-size": 1.95, "icon-allow-overlap": true },
         });
         map.addLayer({
           id: "clip-hit-area", type: "circle", source: "clips", filter: ["!", ["has", "point_count"]],
           paint: {
-            "circle-radius": ["case", ["get", "top"], 18, ["get", "linked"], 11.5, 10.5],
+            "circle-radius": ["case", ["get", "top"], 20, ["get", "linked"], 12.75, 11.5],
             "circle-color": "rgba(0, 0, 0, 0.01)", "circle-stroke-width": 0,
           },
         });
         map.addLayer({
           id: "active-cluster", type: "circle", source: "active-cluster",
           paint: {
-            "circle-radius": ["step", ["get", "point_count"], 17.5, 10, 20.5, 100, 23.5],
+            "circle-radius": ["step", ["get", "point_count"], 19.25, 10, 23, 100, 26.5],
             "circle-color": "#4a2d6d", "circle-stroke-color": "#f0b0ff", "circle-stroke-width": 2.3,
           },
         });
@@ -563,7 +592,7 @@ export default function Home() {
           id: "active-cluster-count", type: "symbol", source: "active-cluster",
           layout: {
             "text-field": ["to-string", ["get", "point_count"]], "text-font": ["Arial"],
-            "text-size": ["step", ["get", "point_count"], 12, 100, 11],
+            "text-size": ["step", ["get", "point_count"], 13, 100, 12],
             "text-allow-overlap": true, "text-ignore-placement": true,
             "text-rotation-alignment": "viewport", "text-pitch-alignment": "viewport",
           },
@@ -571,6 +600,33 @@ export default function Home() {
         });
 
         const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "clip-map-tooltip" });
+        const clearHoveredTitleLabel = () => {
+          window.clearTimeout(hoveredLabelLeaveTimerRef.current);
+          const hoveredId = hoveredLabelIdRef.current;
+          if (hoveredId !== null) map.setFeatureState({ source: "clips", id: hoveredId }, { "title-hover": false });
+          (map.getSource("hovered-label") as GeoJSONSource).setData(placesToGeoJson([]));
+          hoveredLabelIdRef.current = null;
+        };
+        const emphasizeTitleLabel = (place: Place) => {
+          window.clearTimeout(hoveredLabelLeaveTimerRef.current);
+          if (hoveredLabelIdRef.current !== place.id) clearHoveredTitleLabel();
+          hoveredLabelIdRef.current = place.id;
+          map.setFeatureState({ source: "clips", id: place.id }, { "title-hover": true });
+          (map.getSource("hovered-label") as GeoJSONSource).setData(placesToGeoJson([place]));
+          map.setPaintProperty("hovered-clip-label", "icon-translate", [0, 0]);
+          map.setPaintProperty("hovered-clip-label", "text-translate", [0, 0]);
+          window.requestAnimationFrame(() => {
+            if (hoveredLabelIdRef.current !== place.id) return;
+            map.setPaintProperty("hovered-clip-label", "icon-translate", [0, -7]);
+            map.setPaintProperty("hovered-clip-label", "text-translate", [0, -7]);
+          });
+        };
+        const deEmphasizeTitleLabel = () => {
+          if (hoveredLabelIdRef.current === null) return;
+          map.setPaintProperty("hovered-clip-label", "icon-translate", [0, 0]);
+          map.setPaintProperty("hovered-clip-label", "text-translate", [0, 0]);
+          hoveredLabelLeaveTimerRef.current = window.setTimeout(clearHoveredTitleLabel, 175);
+        };
         const bindPointLayer = (layerId: string) => {
           map.on("mouseenter", layerId, (event) => {
             map.getCanvas().style.cursor = "pointer";
@@ -578,10 +634,19 @@ export default function Home() {
             if (!feature || feature.geometry.type !== "Point") return;
             const place = places.find((item) => item.id === Number(feature.properties?.id));
             setMapHoveredPlace(place ?? null);
+            if (place && showTitlesRef.current) {
+              popup.remove();
+              emphasizeTitleLabel(place);
+              return;
+            }
             popup.setLngLat(feature.geometry.coordinates as [number, number])
               .setText(String(feature.properties?.name ?? "Névtelen klip")).addTo(map);
           });
-          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; setMapHoveredPlace(null); popup.remove(); });
+          map.on("mouseleave", layerId, () => {
+            map.getCanvas().style.cursor = "";
+            setMapHoveredPlace(null);
+            if (showTitlesRef.current) deEmphasizeTitleLabel(); else popup.remove();
+          });
           map.on("click", layerId, (event) => {
             const id = Number(event.features?.[0]?.properties?.id);
             const place = places.find((item) => item.id === id);
@@ -590,6 +655,7 @@ export default function Home() {
         };
         bindPointLayer("clip-hit-area");
         bindPointLayer("clip-labels");
+        bindPointLayer("hovered-clip-label");
         map.on("mouseenter", "clip-clusters", (event) => {
           map.getCanvas().style.cursor = "pointer";
           const feature = event.features?.[0];
@@ -631,9 +697,12 @@ export default function Home() {
         });
         map.on("click", (event) => {
           const interactiveFeatures = map.queryRenderedFeatures(event.point, {
-            layers: ["clip-clusters", "cluster-count", "clip-hit-area", "clip-points", "top-points", "clip-labels", "active-clip-point", "active-top-point", "active-cluster", "active-cluster-count"],
+            layers: ["clip-clusters", "cluster-count", "clip-hit-area", "clip-points", "top-points", "clip-labels", "hovered-clip-label", "active-clip-point", "active-top-point", "active-cluster", "active-cluster-count"],
           });
-          if (!interactiveFeatures.length) setListOpen(false);
+          if (!interactiveFeatures.length) {
+            setListOpen(false);
+            setFiltersOpen(false);
+          }
         });
 
         const loadCountryBorders = () => {
@@ -676,7 +745,14 @@ export default function Home() {
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map?.getLayer("clip-labels")) return;
+    showTitlesRef.current = showTitles;
     map.setLayoutProperty("clip-labels", "visibility", showTitles ? "visible" : "none");
+    map.setLayoutProperty("hovered-clip-label", "visibility", showTitles ? "visible" : "none");
+    if (!showTitles && hoveredLabelIdRef.current !== null) {
+      map.setFeatureState({ source: "clips", id: hoveredLabelIdRef.current }, { "title-hover": false });
+      (map.getSource("hovered-label") as GeoJSONSource | undefined)?.setData(placesToGeoJson([]));
+      hoveredLabelIdRef.current = null;
+    }
   }, [mapReady, showTitles]);
 
   useEffect(() => {
@@ -904,9 +980,7 @@ export default function Home() {
           <span className="filter-icon" aria-hidden="true"><i /><i /><i /></span>Szűrők
         </button>
         {filtersOpen && (
-          <>
-            <button className="filter-dismiss" onClick={() => setFiltersOpen(false)} aria-label="Szűrők bezárása" />
-            <section className="filters-panel" id="filters-panel" aria-label="Térképszűrők">
+          <section className="filters-panel" id="filters-panel" aria-label="Térképszűrők">
               <div className="filter-section">
                 <h2>Kiemelt klipek</h2>
                 <div className="filter-options single-option">
@@ -944,8 +1018,7 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-            </section>
-          </>
+          </section>
         )}
       </div>
 
@@ -974,7 +1047,7 @@ export default function Home() {
             {listOpen ? (listPlaces.length ? listPlaces.map((place) => (
               <div key={place.id} role="button" tabIndex={0}
                 ref={(element) => { if (element) listRowRefs.current.set(place.id, element); else listRowRefs.current.delete(place.id); }}
-                className={`clip-list-row ${!place.clipUrl ? "inactive" : ""} ${activeListPlace?.id === place.id ? "active" : ""}`}
+                className={`clip-list-row ${!place.clipUrl ? "inactive" : ""} ${activeListPlace?.id === place.id ? "active" : ""} ${mapHoveredPlace?.id === place.id ? "map-hovered" : ""}`}
                 onMouseEnter={() => setHoveredListPlace(place)} onMouseLeave={() => setHoveredListPlace(null)}
                 onClick={() => activateListPlace(place)}
                 onKeyDown={(event) => {
