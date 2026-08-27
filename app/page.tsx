@@ -254,7 +254,7 @@ function placesToGeoJson(places: Place[]) {
   };
 }
 
-function makeTopStar() {
+function makeTopStar(flash = false) {
   const size = 80;
   const canvas = document.createElement("canvas");
   canvas.width = size; canvas.height = size;
@@ -272,7 +272,9 @@ function makeTopStar() {
   }
   context.closePath();
   const gradient = context.createLinearGradient(8, 6, 31, 34);
-  gradient.addColorStop(0, "#f1a4ff"); gradient.addColorStop(0.58, "#a64cff"); gradient.addColorStop(1, "#7047e8");
+  gradient.addColorStop(0, flash ? "#ffe0ff" : "#f1a4ff");
+  gradient.addColorStop(0.58, flash ? "#df9cff" : "#a64cff");
+  gradient.addColorStop(1, flash ? "#a58dff" : "#7047e8");
   context.fillStyle = gradient; context.fill();
   context.lineWidth = 2.5; context.strokeStyle = "#07141c"; context.stroke();
   return context.getImageData(0, 0, size, size);
@@ -450,38 +452,24 @@ export default function Home() {
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
       let prefetchTimer = 0;
-      let pulseTimer = 0;
-      let pulseFadeTimer = 0;
-      let pulseClearTimer = 0;
+      let flashTimer = 0;
+      let flashRestoreTimer = 0;
       const scheduleTilePrefetch = () => {
         window.clearTimeout(prefetchTimer);
         prefetchTimer = window.setTimeout(() => prefetchTileRing(map), 140);
       };
-      const scheduleNodePulse = () => {
-        window.clearTimeout(pulseTimer);
-        window.clearTimeout(pulseFadeTimer);
-        window.clearTimeout(pulseClearTimer);
-        pulseTimer = window.setTimeout(() => {
-          const source = map.getSource("zoom-pulse") as GeoJSONSource | undefined;
-          if (!source || !map.getLayer("zoom-pulse")) return;
-          const ids = new Set(map.queryRenderedFeatures({ layers: ["clip-points", "top-points"] })
-            .filter((feature) => Boolean(feature.properties?.linked))
-            .map((feature) => Number(feature.properties?.id))
-            .filter(Number.isFinite));
-          const pulsePlaces = places.filter((place) => ids.has(place.id) && Boolean(place.clipUrl));
-          source.setData(placesToGeoJson(pulsePlaces));
-          map.setPaintProperty("zoom-pulse", "circle-opacity", 0);
-          map.setPaintProperty("zoom-pulse", "circle-stroke-opacity", 0);
-          window.requestAnimationFrame(() => {
-            map.setPaintProperty("zoom-pulse", "circle-opacity", 0.12);
-            map.setPaintProperty("zoom-pulse", "circle-stroke-opacity", 0.45);
-          });
-          pulseFadeTimer = window.setTimeout(() => {
-            map.setPaintProperty("zoom-pulse", "circle-opacity", 0);
-            map.setPaintProperty("zoom-pulse", "circle-stroke-opacity", 0);
-          }, 360);
-          pulseClearTimer = window.setTimeout(() => source.setData(placesToGeoJson([])), 760);
-        }, 150);
+      const scheduleNodeFlash = () => {
+        window.clearTimeout(flashTimer);
+        window.clearTimeout(flashRestoreTimer);
+        flashTimer = window.setTimeout(() => {
+          if (!map.getLayer("clip-points") || !map.getLayer("top-points")) return;
+          map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#d895ff", "#7c9299"]);
+          map.setLayoutProperty("top-points", "icon-image", "top-star-flash");
+          flashRestoreTimer = window.setTimeout(() => {
+            map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
+            map.setLayoutProperty("top-points", "icon-image", "top-star");
+          }, 120);
+        }, 80);
       };
       const syncViewportBounds = () => {
         const bounds = map.getBounds();
@@ -502,21 +490,20 @@ export default function Home() {
       document.addEventListener("visibilitychange", handleVisibility);
       map.on("moveend", scheduleTilePrefetch);
       map.on("moveend", syncViewportBounds);
-      map.on("zoomend", scheduleNodePulse);
+      map.on("zoomend", scheduleNodeFlash);
       map.on("resize", syncViewportBounds);
       map.on("idle", scheduleTilePrefetch);
       detachMapWakeups = () => {
         window.clearTimeout(prefetchTimer);
-        window.clearTimeout(pulseTimer);
-        window.clearTimeout(pulseFadeTimer);
-        window.clearTimeout(pulseClearTimer);
+        window.clearTimeout(flashTimer);
+        window.clearTimeout(flashRestoreTimer);
         resizeObserver.disconnect();
         window.removeEventListener("load", wakeMap);
         window.removeEventListener("pageshow", wakeMap);
         document.removeEventListener("visibilitychange", handleVisibility);
         map.off("moveend", scheduleTilePrefetch);
         map.off("moveend", syncViewportBounds);
-        map.off("zoomend", scheduleNodePulse);
+        map.off("zoomend", scheduleNodeFlash);
         map.off("resize", syncViewportBounds);
         map.off("idle", scheduleTilePrefetch);
       };
@@ -527,6 +514,8 @@ export default function Home() {
 
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
+        const flashStar = makeTopStar(true);
+        if (flashStar) map.addImage("top-star-flash", flashStar, { pixelRatio: 2 });
         const titleBackground = makeTitleLabelBackground();
         if (titleBackground) {
           map.addImage("title-label-background", titleBackground, {
@@ -544,7 +533,6 @@ export default function Home() {
         });
         map.addSource("active-clip", { type: "geojson", data: placesToGeoJson([]) });
         map.addSource("hovered-label", { type: "geojson", data: placesToGeoJson([]) });
-        map.addSource("zoom-pulse", { type: "geojson", data: placesToGeoJson([]) });
         map.addSource("active-cluster", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
           id: "clip-clusters", type: "circle", source: "clips", filter: ["has", "point_count"],
@@ -565,20 +553,12 @@ export default function Home() {
           paint: { "text-color": "#ffffff", "text-halo-color": "rgba(21, 10, 34, .55)", "text-halo-width": 0.7 },
         });
         map.addLayer({
-          id: "zoom-pulse", type: "circle", source: "zoom-pulse",
-          paint: {
-            "circle-radius": 11.5, "circle-color": "#c86cff", "circle-opacity": 0,
-            "circle-stroke-color": "#f1b0ff", "circle-stroke-width": 1.4, "circle-stroke-opacity": 0,
-            "circle-opacity-transition": { duration: 280, delay: 0 },
-            "circle-stroke-opacity-transition": { duration: 280, delay: 0 },
-          },
-        });
-        map.addLayer({
           id: "clip-points", type: "circle", source: "clips",
           filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "top"], false]],
           paint: {
             "circle-radius": ["case", ["get", "linked"], 5.5, 4.5],
             "circle-color": ["case", ["get", "linked"], "#bd5cff", "#7c9299"],
+            "circle-color-transition": { duration: 120, delay: 0 },
             "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
           },
         });
