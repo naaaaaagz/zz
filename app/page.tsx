@@ -452,22 +452,30 @@ export default function Home() {
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
       let prefetchTimer = 0;
-      let flashTimer = 0;
-      let flashRestoreTimer = 0;
+      let glowTimer = 0;
+      let glowFrame = 0;
       const scheduleTilePrefetch = () => {
         window.clearTimeout(prefetchTimer);
         prefetchTimer = window.setTimeout(() => prefetchTileRing(map), 140);
       };
-      const scheduleNodeFlash = () => {
-        window.clearTimeout(flashTimer);
-        window.clearTimeout(flashRestoreTimer);
-        flashTimer = window.setTimeout(() => {
-          if (!map.getLayer("clip-points") || !map.getLayer("top-points")) return;
-          map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#d895ff", "#7c9299"]);
-          flashRestoreTimer = window.setTimeout(() => {
-            map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
-          }, 420);
-        }, 80);
+      const scheduleNodeGlow = () => {
+        window.clearTimeout(glowTimer);
+        window.cancelAnimationFrame(glowFrame);
+        glowTimer = window.setTimeout(() => {
+          if (!map.getLayer("clip-points")) return;
+          const startedAt = performance.now();
+          const normal = [189, 92, 255];
+          const highlight = [222, 167, 255];
+          const render = (now: number) => {
+            const progress = Math.min(1, (now - startedAt) / 440);
+            const strength = Math.sin(progress * Math.PI);
+            const color = normal.map((channel, index) => Math.round(channel + (highlight[index] - channel) * strength));
+            map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], `rgb(${color.join(",")})`, "#7c9299"]);
+            if (progress < 1) glowFrame = window.requestAnimationFrame(render);
+            else map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
+          };
+          glowFrame = window.requestAnimationFrame(render);
+        }, 60);
       };
       const syncViewportBounds = () => {
         const bounds = map.getBounds();
@@ -488,20 +496,20 @@ export default function Home() {
       document.addEventListener("visibilitychange", handleVisibility);
       map.on("moveend", scheduleTilePrefetch);
       map.on("moveend", syncViewportBounds);
-      map.on("zoomend", scheduleNodeFlash);
+      map.on("zoomend", scheduleNodeGlow);
       map.on("resize", syncViewportBounds);
       map.on("idle", scheduleTilePrefetch);
       detachMapWakeups = () => {
         window.clearTimeout(prefetchTimer);
-        window.clearTimeout(flashTimer);
-        window.clearTimeout(flashRestoreTimer);
+        window.clearTimeout(glowTimer);
+        window.cancelAnimationFrame(glowFrame);
         resizeObserver.disconnect();
         window.removeEventListener("load", wakeMap);
         window.removeEventListener("pageshow", wakeMap);
         document.removeEventListener("visibilitychange", handleVisibility);
         map.off("moveend", scheduleTilePrefetch);
         map.off("moveend", syncViewportBounds);
-        map.off("zoomend", scheduleNodeFlash);
+        map.off("zoomend", scheduleNodeGlow);
         map.off("resize", syncViewportBounds);
         map.off("idle", scheduleTilePrefetch);
       };
@@ -554,7 +562,7 @@ export default function Home() {
           paint: {
             "circle-radius": ["case", ["get", "linked"], 5.5, 4.5],
             "circle-color": ["case", ["get", "linked"], "#bd5cff", "#7c9299"],
-            "circle-color-transition": { duration: 280, delay: 0 },
+            "circle-color-transition": { duration: 0, delay: 0 },
             "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
           },
         });
