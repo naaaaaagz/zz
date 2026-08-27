@@ -254,7 +254,7 @@ function placesToGeoJson(places: Place[]) {
   };
 }
 
-function makeTopStar(flash = false) {
+function makeTopStar() {
   const size = 80;
   const canvas = document.createElement("canvas");
   canvas.width = size; canvas.height = size;
@@ -272,9 +272,9 @@ function makeTopStar(flash = false) {
   }
   context.closePath();
   const gradient = context.createLinearGradient(8, 6, 31, 34);
-  gradient.addColorStop(0, flash ? "#ffe0ff" : "#f1a4ff");
-  gradient.addColorStop(0.58, flash ? "#df9cff" : "#a64cff");
-  gradient.addColorStop(1, flash ? "#a58dff" : "#7047e8");
+  gradient.addColorStop(0, "#f1a4ff");
+  gradient.addColorStop(0.58, "#a64cff");
+  gradient.addColorStop(1, "#7047e8");
   context.fillStyle = gradient; context.fill();
   context.lineWidth = 2.5; context.strokeStyle = "#07141c"; context.stroke();
   return context.getImageData(0, 0, size, size);
@@ -464,11 +464,9 @@ export default function Home() {
         flashTimer = window.setTimeout(() => {
           if (!map.getLayer("clip-points") || !map.getLayer("top-points")) return;
           map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#d895ff", "#7c9299"]);
-          map.setLayoutProperty("top-points", "icon-image", "top-star-flash");
           flashRestoreTimer = window.setTimeout(() => {
             map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
-            map.setLayoutProperty("top-points", "icon-image", "top-star");
-          }, 120);
+          }, 420);
         }, 80);
       };
       const syncViewportBounds = () => {
@@ -514,8 +512,6 @@ export default function Home() {
 
         const star = makeTopStar();
         if (star) map.addImage("top-star", star, { pixelRatio: 2 });
-        const flashStar = makeTopStar(true);
-        if (flashStar) map.addImage("top-star-flash", flashStar, { pixelRatio: 2 });
         const titleBackground = makeTitleLabelBackground();
         if (titleBackground) {
           map.addImage("title-label-background", titleBackground, {
@@ -558,7 +554,7 @@ export default function Home() {
           paint: {
             "circle-radius": ["case", ["get", "linked"], 5.5, 4.5],
             "circle-color": ["case", ["get", "linked"], "#bd5cff", "#7c9299"],
-            "circle-color-transition": { duration: 120, delay: 0 },
+            "circle-color-transition": { duration: 280, delay: 0 },
             "circle-stroke-color": "#07141c", "circle-stroke-width": 1.5,
           },
         });
