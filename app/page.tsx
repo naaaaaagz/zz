@@ -254,7 +254,7 @@ function placesToGeoJson(places: Place[]) {
   };
 }
 
-function makeTopStar() {
+function makeTopStar(glow = 0) {
   const size = 80;
   const canvas = document.createElement("canvas");
   canvas.width = size; canvas.height = size;
@@ -271,12 +271,17 @@ function makeTopStar() {
     if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
   }
   context.closePath();
+  const brighten = (hex: string) => {
+    const value = hex.slice(1);
+    const channels = [0, 2, 4].map((offset) => parseInt(value.slice(offset, offset + 2), 16));
+    return `rgb(${channels.map((channel) => Math.round(channel + (255 - channel) * glow * 0.52)).join(",")})`;
+  };
   const gradient = context.createLinearGradient(8, 6, 31, 34);
-  gradient.addColorStop(0, "#f1a4ff");
-  gradient.addColorStop(0.58, "#a64cff");
-  gradient.addColorStop(1, "#7047e8");
+  gradient.addColorStop(0, brighten("#f1a4ff"));
+  gradient.addColorStop(0.58, brighten("#a64cff"));
+  gradient.addColorStop(1, brighten("#7047e8"));
   context.fillStyle = gradient; context.fill();
-  context.lineWidth = 2.5; context.strokeStyle = "#07141c"; context.stroke();
+  context.lineWidth = 2.5; context.strokeStyle = brighten("#07141c"); context.stroke();
   return context.getImageData(0, 0, size, size);
 }
 
@@ -462,7 +467,7 @@ export default function Home() {
         window.clearTimeout(glowTimer);
         window.cancelAnimationFrame(glowFrame);
         glowTimer = window.setTimeout(() => {
-          if (!map.getLayer("clip-points")) return;
+          if (!map.getLayer("clip-points") || !map.hasImage("top-star")) return;
           const startedAt = performance.now();
           const normal = [189, 92, 255];
           const highlight = [222, 167, 255];
@@ -471,8 +476,14 @@ export default function Home() {
             const strength = Math.sin(progress * Math.PI);
             const color = normal.map((channel, index) => Math.round(channel + (highlight[index] - channel) * strength));
             map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], `rgb(${color.join(",")})`, "#7c9299"]);
+            const glowingStar = makeTopStar(strength);
+            if (glowingStar) map.updateImage("top-star", glowingStar);
             if (progress < 1) glowFrame = window.requestAnimationFrame(render);
-            else map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
+            else {
+              map.setPaintProperty("clip-points", "circle-color", ["case", ["get", "linked"], "#bd5cff", "#7c9299"]);
+              const baseStar = makeTopStar();
+              if (baseStar) map.updateImage("top-star", baseStar);
+            }
           };
           glowFrame = window.requestAnimationFrame(render);
         }, 60);
