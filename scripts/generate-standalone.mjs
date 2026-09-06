@@ -171,7 +171,7 @@ const html = `<!doctype html>
         <p class="clip-source-keywords" id="clip-source-keywords" hidden></p>
       </section>
     </div>
-    <div class="site-credit">vibecoded with love by nagz</div>
+    <div class="site-credit">vibecoded with love :: powered by <a href="https://nagz.space" target="_blank" rel="noopener noreferrer">nagz.space</a></div>
   </main>
 
   <script type="module">

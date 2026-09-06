@@ -1151,7 +1151,12 @@ export default function Home() {
           </section>
         </div>
       )}
-      <div className="site-credit">vibecoded with love by nagz</div>
+      <div className="site-credit">
+        vibecoded with love :: powered by{" "}
+        <a href="https://nagz.space" target="_blank" rel="noopener noreferrer">
+          nagz.space
+        </a>
+      </div>
     </main>
   );
 }
