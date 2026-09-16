@@ -1,11 +1,15 @@
 const TWITCH_CHANNEL = "zedthecyclist";
+const ALLOWED_ORIGINS = new Set([
+  "https://naaaaaagz.github.io",
+  "https://zedclips.nagz.space",
+]);
 
 let cachedToken = "";
 let tokenExpiresAt = 0;
 
 function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin") ?? "";
-  const allowedOrigin = origin === "https://naaaaaagz.github.io" ? origin : "";
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "";
   return {
     ...(allowedOrigin ? { "Access-Control-Allow-Origin": allowedOrigin } : {}),
     "Cache-Control": "public, max-age=60, s-maxage=60",
